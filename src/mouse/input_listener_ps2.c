@@ -236,20 +236,20 @@ static void input_handler_ps2(const struct input_listener_ps2_config *config,
                 datax = (datax + 2 * datax / datasum) / 3;
                 datay = (datay + 2 * datax / datasum) / 3;
             }
-            if (data->data.x > 0) {
+            if (data->mouse.data.x > 0) {
                 if (datax < 1) {
                     datax = 1;
                 }
-            } else if (data->data.x < 0) {
+            } else if (data->mouse.data.x < 0) {
                 if (datax > -1) {
                     datax = -1;
                 }
             }
-            if (data->data.y > 0) {
+            if (data->mouse.data.y > 0) {
                 if (datay < 1) {
                     datay = 1;
                 }
-            } else if (data->data.y < 0) {
+            } else if (data->mouse.data.y < 0) {
                 if (datay > -1) {
                     datay = -1;
                 }
