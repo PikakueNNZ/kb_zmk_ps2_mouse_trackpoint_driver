@@ -213,7 +213,48 @@ static void input_handler_ps2(const struct input_listener_ps2_config *config,
         }
 
         if (data->mouse.data.mode == INPUT_LISTENER_XY_DATA_MODE_REL) {
-            zmk_hid_mouse_movement_set(data->mouse.data.x, data->mouse.data.y);
+                        int datax = data->data.x;
+            int datay = data->data.y;
+            int datasum = 0;
+            if (datax > 0) {
+                datasum += datax;
+            } else {
+                datasum -= datax;
+            }
+            if (datay > 0) {
+                datasum += datay;
+            } else {
+                datasum -= datay;
+            }
+            if (datasum > 10) {
+                datax -= 5 * datax / datasum;
+                datay -= 5 * datay / datasum;
+            } else if (datasum > 5) {
+                datax /= 2;
+                datay /= 2;
+            } else {
+                datax = (datax + 2 * datax / datasum) / 3;
+                datay = (datay + 2 * datax / datasum) / 3;
+            }
+            if (data->data.x > 0) {
+                if (datax < 1) {
+                    datax = 1;
+                }
+            } else if (data->data.x < 0) {
+                if (datax > -1) {
+                    datax = -1;
+                }
+            }
+            if (data->data.y > 0) {
+                if (datay < 1) {
+                    datay = 1;
+                }
+            } else if (data->data.y < 0) {
+                if (datay > -1) {
+                    datay = -1;
+                }
+            }
+            zmk_hid_mouse_movement_set(datax, datay);
         }
 
         if (data->mouse.button_set != 0) {
