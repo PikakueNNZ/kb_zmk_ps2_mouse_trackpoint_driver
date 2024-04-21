@@ -213,8 +213,8 @@ static void input_handler_ps2(const struct input_listener_ps2_config *config,
         }
 
         if (data->mouse.data.mode == INPUT_LISTENER_XY_DATA_MODE_REL) {
-                        int datax = data->data.x;
-            int datay = data->data.y;
+            int datax = data->mouse.data.x;
+            int datay = data->mouse.data.y;
             int datasum = 0;
             if (datax > 0) {
                 datasum += datax;
