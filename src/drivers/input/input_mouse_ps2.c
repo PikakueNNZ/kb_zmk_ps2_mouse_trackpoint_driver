@@ -46,9 +46,6 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define MOUSE_PS2_POWER_ON_RESET_TIME K_MSEC(600)
 
 // Common PS/2 Mouse commands
-#define MOUSE_PS2_CMD_GET_SECONDARY_ID "\xe1"
-#define MOUSE_PS2_CMD_GET_SECONDARY_ID_RESP_LEN 2
-
 #define MOUSE_PS2_CMD_GET_DEVICE_ID "\xf2"
 #define MOUSE_PS2_CMD_GET_DEVICE_ID_RESP_LEN 1
 
@@ -71,6 +68,12 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 // Trackpoint Commands
 // They can be found in the `IBM TrackPoint System Version 4.0 Engineering
 // Specification` (YKT3Eext.pdf)...
+
+#define MOUSE_PS2_CMD_TP_GET_SECONDARY_ID "\xe1"
+#define MOUSE_PS2_CMD_TP_GET_SECONDARY_ID_RESP_LEN 2
+
+#define MOUSE_PS2_CMD_TP_GET_ROM_ID "\xe2\x46"
+#define MOUSE_PS2_CMD_TP_GET_ROM_ID_RESP_LEN 1
 
 #define MOUSE_PS2_CMD_TP_GET_CONFIG_BYTE "\xe2\x80\x2c"
 #define MOUSE_PS2_CMD_TP_GET_CONFIG_BYTE_RESP_LEN 1
@@ -140,7 +143,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define MOUSE_PS2_BUTTON_R_IDX 1
 #define MOUSE_PS2_BUTTON_M_IDX 3
 
-#define MOUSE_PS2_THREAD_STACK_SIZE 1024
+#define MOUSE_PS2_THREAD_STACK_SIZE 2048
 #define MOUSE_PS2_THREAD_PRIORITY 10
 
 /*
@@ -157,6 +160,7 @@ typedef enum {
 struct zmk_mouse_ps2_config {
     const struct device *ps2_device;
     struct gpio_dt_spec rst_gpio;
+    int rst_gpio_port_num;
 
     bool scroll_mode;
     bool disable_clicking;
@@ -202,6 +206,9 @@ struct zmk_mouse_ps2_data {
 
     bool activity_reporting_on;
     bool is_trackpoint;
+    uint8_t manufacturer_id;
+    uint8_t secondary_id;
+    uint8_t rom_id;
 
     uint8_t sampling_rate;
     uint8_t tp_sensitivity;
@@ -215,6 +222,7 @@ static const struct zmk_mouse_ps2_config zmk_mouse_ps2_config = {
 
 #if DT_INST_NODE_HAS_PROP(0, rst_gpios)
     .rst_gpio = GPIO_DT_SPEC_INST_GET(0, rst_gpios),
+    .rst_gpio_port_num = DT_PROP(DT_INST_PHANDLE(0, rst_gpios), port),
 #else
     .rst_gpio =
         {
@@ -222,6 +230,7 @@ static const struct zmk_mouse_ps2_config zmk_mouse_ps2_config = {
             .pin = 0,
             .dt_flags = 0,
         },
+    .rst_gpio_port_num = 0,
 #endif
 
     .scroll_mode = DT_INST_PROP_OR(0, scroll_mode, false),
@@ -258,7 +267,12 @@ static struct zmk_mouse_ps2_data zmk_mouse_ps2_data = {
 
     // Data reporting is disabled on init
     .activity_reporting_on = false,
+
+    // Device Info
     .is_trackpoint = false,
+    .manufacturer_id = 0x0,
+    .secondary_id = 0x0,
+    .rom_id = 0x0,
 
     // PS2 devices initialize with this rate
     .sampling_rate = MOUSE_PS2_CMD_SET_SAMPLING_RATE_DEFAULT,
@@ -658,7 +672,7 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(char *cmd, int cmd_len
     // Don't send the string termination NULL byte
     int cmd_bytes = cmd_len - 1;
     if (cmd_bytes < 1) {
-        err = 1;
+        resp.err = -10;
         snprintf(resp.err_msg, sizeof(resp.err_msg),
                  "Cannot send cmd with less than 1 byte length");
 
@@ -666,7 +680,7 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(char *cmd, int cmd_len
     }
 
     if (resp_len > sizeof(resp.resp_buffer)) {
-        err = 2;
+        resp.err = -11;
         snprintf(resp.err_msg, sizeof(resp.err_msg),
                  "Response can't be longer than the resp_buffer (%d)", sizeof(resp.err_msg));
 
@@ -676,9 +690,8 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(char *cmd, int cmd_len
     if (pause_reporting == true && data->activity_reporting_on == true) {
         LOG_DBG("Disabling mouse activity reporting...");
 
-        err = zmk_mouse_ps2_activity_reporting_disable();
-        if (err) {
-            resp.err = err;
+        resp.err = zmk_mouse_ps2_activity_reporting_disable();
+        if (resp.err) {
             snprintf(resp.err_msg, sizeof(resp.err_msg), "Could not disable data reporting (%d)",
                      err);
         }
@@ -688,9 +701,8 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(char *cmd, int cmd_len
         LOG_DBG("Sending cmd...");
 
         for (int i = 0; i < cmd_bytes; i++) {
-            err = ps2_write(ps2_device, cmd[i]);
-            if (err) {
-                resp.err = err;
+            resp.err = ps2_write(ps2_device, cmd[i]);
+            if (resp.err) {
                 snprintf(resp.err_msg, sizeof(resp.err_msg), "Could not send cmd byte %d/%d (%d)",
                          i + 1, cmd_bytes, err);
                 break;
@@ -700,9 +712,8 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(char *cmd, int cmd_len
 
     if (resp.err == 0 && arg != NULL) {
         LOG_DBG("Sending arg...");
-        err = ps2_write(ps2_device, *arg);
-        if (err) {
-            resp.err = err;
+        resp.err = ps2_write(ps2_device, *arg);
+        if (resp.err) {
             snprintf(resp.err_msg, sizeof(resp.err_msg), "Could not send arg (%d)", err);
         }
     }
@@ -710,9 +721,8 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(char *cmd, int cmd_len
     if (resp.err == 0 && resp_len > 0) {
         LOG_DBG("Reading response...");
         for (int i = 0; i < resp_len; i++) {
-            err = ps2_read(ps2_device, &resp.resp_buffer[i]);
-            if (err) {
-                resp.err = err;
+            resp.err = ps2_read(ps2_device, &resp.resp_buffer[i]);
+            if (resp.err) {
                 snprintf(resp.err_msg, sizeof(resp.err_msg),
                          "Could not read response cmd byte %d/%d (%d)", i + 1, resp_len, err);
                 break;
@@ -850,21 +860,6 @@ int zmk_mouse_ps2_reset(const struct device *ps2_device) {
     return resp.err;
 }
 
-int zmk_mouse_ps2_get_secondary_id(uint8_t *resp_byte_1, uint8_t *resp_byte_2) {
-    struct zmk_mouse_ps2_send_cmd_resp resp = zmk_mouse_ps2_send_cmd(
-        MOUSE_PS2_CMD_GET_SECONDARY_ID, sizeof(MOUSE_PS2_CMD_GET_SECONDARY_ID), NULL,
-        MOUSE_PS2_CMD_GET_SECONDARY_ID_RESP_LEN, true);
-    if (resp.err) {
-        LOG_ERR("Could not get secondary id");
-        return resp.err;
-    }
-
-    *resp_byte_1 = resp.resp_buffer[0];
-    *resp_byte_2 = resp.resp_buffer[1];
-
-    return 0;
-}
-
 int zmk_mouse_ps2_set_sampling_rate(uint8_t sampling_rate) {
     struct zmk_mouse_ps2_data *data = &zmk_mouse_ps2_data;
 
@@ -990,23 +985,98 @@ int zmk_mouse_ps2_set_packet_mode(zmk_mouse_ps2_packet_mode mode) {
  * Trackpoint Commands
  */
 
-bool zmk_mouse_ps2_is_device_trackpoint() {
-    bool ret = false;
-
-    uint8_t second_id_1, second_id_2;
-    int err = zmk_mouse_ps2_get_secondary_id(&second_id_1, &second_id_2);
-    if (err) {
-        // Not all devices implement this command.
-        ret = false;
-    } else {
-        if (second_id_1 == 0x1) {
-            ret = true;
-        }
+int zmk_mouse_ps2_tp_get_secondary_id(uint8_t *manufacturer_id, uint8_t *secondary_id) {
+    struct zmk_mouse_ps2_send_cmd_resp resp = zmk_mouse_ps2_send_cmd(
+        MOUSE_PS2_CMD_TP_GET_SECONDARY_ID, sizeof(MOUSE_PS2_CMD_TP_GET_SECONDARY_ID), NULL,
+        MOUSE_PS2_CMD_TP_GET_SECONDARY_ID_RESP_LEN, true);
+    if (resp.err) {
+        LOG_ERR("Could not get secondary id");
+        return resp.err;
     }
 
-    LOG_DBG("Connected device is a trackpoint: %d", ret);
+    *manufacturer_id = resp.resp_buffer[0];
+    *secondary_id = resp.resp_buffer[1];
 
-    return ret;
+    return 0;
+}
+
+int zmk_mouse_ps2_tp_get_rom_id(uint8_t *rom_id) {
+    struct zmk_mouse_ps2_send_cmd_resp resp =
+        zmk_mouse_ps2_send_cmd(MOUSE_PS2_CMD_TP_GET_ROM_ID, sizeof(MOUSE_PS2_CMD_TP_GET_ROM_ID),
+                               NULL, MOUSE_PS2_CMD_TP_GET_ROM_ID_RESP_LEN, true);
+    if (resp.err) {
+        LOG_ERR("Could not get secondary id");
+        return resp.err;
+    }
+
+    *rom_id = resp.resp_buffer[0];
+
+    return 0;
+}
+
+char *zmk_mouse_ps2_get_manufacturer_str(uint8_t manufacturer_id) {
+
+    switch (manufacturer_id) {
+    case 0x1:
+        return "IBM";
+    case 0x2:
+        return "Alps";
+    case 0x3:
+        return "Elan";
+    case 0x4:
+        return "NXP";
+    case 0x5:
+        return "JYT Synaptics";
+    case 0x6:
+        return "Synaptics";
+    }
+
+    return "Unknown";
+}
+
+// On non-trackpoints this command is not supported and returns nothing.
+//
+// On trackpoints it returns the manufacturer id and firmware id.
+//
+// Trackpoints from IBM/Lenovo laptops up until aproximately 2016 used IBM
+// trackpoints. After that they started to use other manufacturers.
+//
+// Page 19 of the IBM TP spec describes the features of different firmware ids.
+int zmk_mouse_ps2_tp_get_device_info(bool *is_tp, uint8_t *tp_manufacturer_id,
+                                     uint8_t *tp_secondary_id, uint8_t *tp_rom_id, char *device_str,
+                                     int device_str_size) {
+
+    int err = zmk_mouse_ps2_tp_get_secondary_id(tp_manufacturer_id, tp_secondary_id);
+    if (err) {
+        // Only TPs implement this command. So, if it fails, it means the
+        // device is not a TP.
+
+        *is_tp = false;
+        *tp_manufacturer_id = 0x0;
+        *tp_secondary_id = 0x0;
+        *tp_rom_id = 0x0;
+
+        snprintf(device_str, device_str_size, "Generic PS/2 Mouse");
+
+        return 0;
+    }
+
+    *is_tp = true;
+
+    err = zmk_mouse_ps2_tp_get_rom_id(tp_rom_id);
+    if (err) {
+        LOG_ERR("Could not determine TP rom id: %d", err);
+        *tp_rom_id = 0x0;
+        err = -1;
+    }
+
+    char *manufacturer_str = zmk_mouse_ps2_get_manufacturer_str(*tp_manufacturer_id);
+
+    snprintf(device_str, device_str_size,
+             "Trackpoint by %s (0x%02X); Secondary ID: 0x%02X; Rom Version: %02X", manufacturer_str,
+             *tp_manufacturer_id, *tp_secondary_id, *tp_rom_id);
+
+    return err;
 }
 
 int zmk_mouse_ps2_tp_get_config_byte(uint8_t *config_byte) {
@@ -1361,7 +1431,7 @@ int zmk_mouse_ps2_settings_reset_setting(char *setting_name) {
 static void zmk_mouse_ps2_settings_save_work(struct k_work *work) {
     struct zmk_mouse_ps2_data *data = &zmk_mouse_ps2_data;
 
-    LOG_DBG("");
+    LOG_INF("Saving PS/2 Mouse Settings.");
 
     zmk_mouse_ps2_settings_save_setting(MOUSE_PS2_ST_TP_SENSITIVITY, &data->tp_sensitivity,
                                         sizeof(data->tp_sensitivity));
@@ -1578,9 +1648,14 @@ static void zmk_mouse_ps2_init_thread(int dev_ptr, int unused) {
         }
     }
 
-    if (zmk_mouse_ps2_is_device_trackpoint() == true) {
-        LOG_INF("Device is a trackpoint");
-        data->is_trackpoint = true;
+    char device_descr[64] = "undetermined device";
+    zmk_mouse_ps2_tp_get_device_info(&data->is_trackpoint, &data->manufacturer_id,
+                                     &data->secondary_id, &data->rom_id, device_descr,
+                                     sizeof(device_descr));
+
+    LOG_INF("Connected device is a %s", device_descr);
+
+    if (data->is_trackpoint == true) {
 
         if (config->tp_press_to_select) {
             LOG_INF("Enabling TP press to select...");
@@ -1678,7 +1753,8 @@ int zmk_mouse_ps2_init_power_on_reset() {
         return 0;
     }
 
-    LOG_INF("Performing Power-On-Reset...");
+    LOG_INF("Performing Power-On-Reset on pin P%d.%02d...", config->rst_gpio_port_num,
+            config->rst_gpio.pin);
 
     if (data->rst_gpio.port == NULL) {
         data->rst_gpio = config->rst_gpio;

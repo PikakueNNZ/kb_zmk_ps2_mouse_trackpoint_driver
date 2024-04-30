@@ -8,12 +8,12 @@ But it's most commonly used with TrackPoints such as this one:
 
 ![ThinkCorney keyboard with TrackPoint](img/kb_think_corney.jpg)
 
-It is a [zmk module](#336-add-the-ps2-driver-module-to-your-configwestyml) version of my original PRs:
+It is a [zmk module](#zmk-module) version of my original PRs:
 
 1. [zmk PR #1751](https://github.com/zmkfirmware/zmk/pull/1751) - Add PS/2 Mouse / TrackPoint / Trackpad / Trackball support
 2. [zephyr PR #15](https://github.com/zmkfirmware/zephyr/pull/15) - Add PS/2 GPIO Bit-banging driver
 
-If you are interested in how this project came to be, [check out the development journey "blog post" at the bottom](#5-development-journey-blog--implementation-details).
+If you are interested in how this project came to be, [check out the development journey "blog post" at the bottom](#blog-post).
 
 ## Table Of Contents <!-- omit from toc -->
 
@@ -45,7 +45,7 @@ If you are interested in how this project came to be, [check out the development
 - [4. Troubleshooting](#4-troubleshooting)
   - [4.1. If the firmware fails to build](#41-if-the-firmware-fails-to-build)
     - [4.1.1. Check if you using a zmk fork that doesn't include mouse support](#411-check-if-you-using-a-zmk-fork-that-doesnt-include-mouse-support)
-    - [4.1.2. error: too few arguments to function 'zmk\_keymap\_layer\_activate'](#412-error-too-few-arguments-to-function-zmk_keymap_layer_activate)
+    - [4.1.2. error: too few arguments to function 'zmk_keymap_layer_activate'](#412-error-too-few-arguments-to-function-zmk_keymap_layer_activate)
     - [4.1.3. fatal error: zmk/mouse/types.h: No such file or directory](#413-fatal-error-zmkmousetypesh-no-such-file-or-directory)
     - [4.1.4. Other build errors](#414-other-build-errors)
   - [4.2. If the mouse or TrackPoint "doesn't work"](#42-if-the-mouse-or-trackpoint-doesnt-work)
@@ -61,6 +61,7 @@ If you are interested in how this project came to be, [check out the development
   - [6.2. TrackPoint Info](#62-trackpoint-info)
   - [6.3. How to figure out TrackPoint Pinout](#63-how-to-figure-out-trackpoint-pinout)
   - [6.4. Datasheets](#64-datasheets)
+  - [6.5. Other Info](#65-other-info)
 
 ## 1. Features
 
@@ -74,7 +75,7 @@ TrackPoints send data at a rate of almost 15,000 times per second and unfortunat
 
 However, I found a way to take advantage of the UART hardware chip to process the data. This ensures great performance even without proper PS/2 hardware support on the MCU.
 
-If you are interested in how this works, [you can read more about it in the development journey section](#5-development-journey-blog--implementation-details).
+If you are interested in how this works, [you can read more about it in the development journey section](#blog-post).
 
 ### 1.2. Automatic Layer Toggling on mouse movement
 
@@ -279,7 +280,6 @@ Next, rename the files in your personal config directory (not the shield directo
 > You should always edit your keymap in the `zmk-config/config` directory. That's the one that is meant to be customized by the end user.
 >
 > The keymap in `zmk-config/boards/shields` is the default keymap that is used if the user doesn't specify his own, but should not be edited by end-users.
->
 
 ##### Build the firmware with the new shield to see if it's working <!-- omit from toc -->
 
@@ -347,7 +347,6 @@ You will need to add the config in these places:
 > **Warning**
 >
 > Make sure you edit these files inside the `zmk-config/config/` directory. The same files also exist within the shield directory, but you should edit your personal keymap and config.
->
 
 - Edit your keymap `zmk-config/config/your_keyboard_tp.keymap`
 - Edit your config `zmk-config/config/your_keyboard_tp.conf`
@@ -444,6 +443,8 @@ You won't need to adjust most of the settings in `your_keyboard.conf`, but one o
 
 It is necessary if you want to use [urob's popular zmk fork](https://github.com/urob/zmk).
 
+<a name="zmk-module"></a>
+
 #### 3.4.5. Add the PS/2 driver module to your `config/west.yml`
 
 This version of the driver is a zmk module.
@@ -502,10 +503,8 @@ This means you must use a fork of zmk that has this PR merged into it.
    - It has traditionally been the recommended fork for people who wanted to add mouse support to their keyboards because urob frequently updates it with the latest improvements that get added to the original zmk main version.
    - If you are not familiar with it, you should definitely check out [his fork](https://github.com/urob/zmk) and his [zmk-config](https://github.com/urob/zmk-config) to learn about all these extra features and especially his `timeless homerow mods`.
    - Please also enable `CONFIG_ZMK_INPUT_MOUSE_PS2_ENABLE_UROB_COMPAT=y` to account for API changes in urob's fork.
-   - **IMPORTANT:** At the time of publishing this, his fork used an older version of PR #2027, which is not compatible with this module. But I am sure urob will update it soon.
 4. [infused-kim - pr-testing/mouse_ps2_module_base_urob](https://github.com/infused-kim/zmk/tree/pr-testing/mouse_ps2_module_base_urob)
    - This fork is the same as #2 above but also includes urob's features on top of the latest mouse implementation.
-   - So it's good to use if you want urob's features before he updates his fork.
    - Please also enable `CONFIG_ZMK_INPUT_MOUSE_PS2_ENABLE_UROB_COMPAT=y` to account for API changes in urob's fork.
 
 ##### How to add the zmk fork to your `config/west.yml` <!-- omit from toc -->
@@ -553,7 +552,6 @@ If not, please refer to the troubleshooting section below.
 > **Notice**
 >
 > This sub-section is for developers who are building zmk locally on their computers instead of using GitHub Actions. Most people can ignore this sub-section.
->
 
 #### Set up the toolchain <!-- omit from toc -->
 
@@ -674,13 +672,7 @@ If you are getting an error like...
 compilation terminated.
 ```
 
-Then, it's a sign that you are building using a zmk fork that is using an outdated version of the  [zmk mouse PR #2027](https://github.com/zmkfirmware/zmk/pull/2027).
-
-At the time of publishing this, urob's fork had an outdated version and this could be causing it.
-
-I have asked him to update his fork, but in the meantime, I have a copy of urob's fork with the updated mouse PR, which you can try to use.
-
-Check out the [example zmk-config's west.yml](https://github.com/infused-kim/kb_zmk_ps2_mouse_trackpoint_driver-zmk_config/blob/main/config/west.yml) or [instructions above for more information](#34-switch-to-a-zmk-fork-with-mouse-support).
+Then, it's a sign that you are building using a zmk fork that is using an outdated version of the [zmk mouse PR #2027](https://github.com/zmkfirmware/zmk/pull/2027).
 
 #### 4.1.4. Other build errors
 
@@ -707,9 +699,15 @@ The best way to see, if that's the case, is to look at the log for related logs.
 You want to look for lines like these:
 
 ```log
+[...]
+
+[00:00:00.404,663] <inf> ps2_uart: Initializing ps2_uart driver with pins... SCL: P0.06; SDA: P0.08; SDA Pinctrl: P0.08
+[00:00:00.404,724] <inf> ps2_uart: UART device is ready
+[00:00:00.404,754] <inf> ps2_uart: Disabling callback...
 
 [...]
-[00:00:01.384,368] <inf> zmk: Performing Power-On-Reset...
+
+[00:00:01.384,368] <inf> zmk: Performing Power-On-Reset on pin P0.09...
 [00:00:01.984,466] <inf> zmk: Waiting for mouse to connect...
 [00:00:01.984,497] <inf> zmk: Trying to initialize mouse device (attempt 1 / 10)
 ```
@@ -729,13 +727,17 @@ It should look something like the log below. I have added comments so that you k
 ```bash
 [...]
 
-
 # If you don't see this message, then you might need to increase the log delay with:
 # `CONFIG_LOG_PROCESS_THREAD_STARTUP_DELAY_MS=3000`
-[00:00:00.423,828] <inf> zmk: Welcome to ZMK!
+[00:00:00.404,663] <inf> ps2_uart: Initializing ps2_uart driver with pins... SCL: P0.06; SDA: P0.08; SDA Pinctrl: P0.08
+[00:00:00.404,724] <inf> ps2_uart: UART device is ready
+[00:00:00.404,754] <inf> ps2_uart: Disabling callback...
 
 [...]
 
+[00:00:00.423,828] <inf> zmk: Welcome to ZMK!
+
+[...]
 
 # These framing errors are ok as long as they only appear from time to time and don't affect
 # the performance.
@@ -744,7 +746,7 @@ It should look something like the log below. I have added comments so that you k
 
 # If you are using a TrackPoint and don't have a reset circuit, please make sure your
 # firmware is performing a Power-On-Reset sequence on the correct pin.
-[00:00:01.384,368] <inf> zmk: Performing Power-On-Reset...
+[00:00:01.384,368] <inf> zmk: Performing Power-On-Reset on pin P0.09...
 
 
 # Look for this init sequence
@@ -764,11 +766,10 @@ It should look something like the log below. I have added comments so that you k
 [00:00:01.984,497] <inf> zmk: PS/2 Device passed self-test: 0xaa
 
 
-
 # If the driver receives the self-test success 0xaa message, it continues like this...
 [00:00:01.984,527] <inf> zmk: Reading PS/2 device id...
 [00:00:01.984,527] <inf> zmk: Connected PS/2 device is a mouse...
-[00:00:01.991,058] <inf> zmk: Device is a TrackPoint
+[00:00:01.984,527] <inf> zmk: Connected device is a Trackpoint by IBM (0x01); Rom Version: 3E; Secondary ID: 0x0E
 
 
 # The settings will only be restored if you configured non-default settings. So, you might
@@ -776,12 +777,10 @@ It should look something like the log below. I have added comments so that you k
 [00:00:01.991,058] <inf> zmk: Setting TP sensitivity to 135...
 [00:00:02.002,777] <inf> zmk: Successfully set TP sensitivity to 135
 
-
 # It's fine if there are write errors, because we are using GPIO interrupts instead
 # of the UART chips for writes, which has performance issues on the nice!nano.
 #
 # But as long as the write is successful in one of the 5 attempts, that's fine.
-
 [00:00:02.002,777] <inf> zmk: Setting TP inertia to 6...
 [00:00:02.006,988] <err> ps2_uart: Failed to write value 0xe2: scl timeout
 [00:00:02.007,019] <err> ps2_uart: Blocking write finished with failure for byte 0xe2 status: 3
@@ -824,7 +823,7 @@ In both cases, the driver will attempt to send the `0xff` reset command to the d
 The log looks like this in those cases:
 
 ```bash
-[00:00:01.385,803] <inf> zmk: Performing Power-On-Reset...
+[00:00:01.385,803] <inf> zmk: Performing Power-On-Reset on pin P0.09...
 [00:00:01.985,900] <inf> zmk: Waiting for mouse to connect...
 [00:00:01.985,931] <inf> zmk: Trying to initialize mouse device (attempt 1 / 10)
 
@@ -884,10 +883,12 @@ If you are not using a hardware reset circuit, then make sure you have enabled t
 You can see in the log if it is...
 
 ```bash
-[00:00:01.385,803] <inf> zmk: Performing Power-On-Reset...
+[00:00:01.385,803] <inf> zmk: Performing Power-On-Reset on pin P0.09...
 ```
 
 You should also make sure that it's sending it on the correct pin and that the reset wire is connected to the correct pin on your TrackPoint.
+
+The pin is logged in the "raw pin notation" (like P0.09), but in your `your_keyboard_right.overlay` it's configured using the "pro micro" notation. You can find both notations in the [nice!nano pinout schematic](https://nicekeyboards.com/docs/nice-nano/pinout-schematic).
 
 ##### Double check that you are using the correct SCL and SDA pins <!-- omit from toc -->
 
@@ -897,17 +898,21 @@ Make sure you read [the nice!nano pinout](https://nicekeyboards.com/docs/nice-na
 
 You should also check the config to see if the `pro_micro notation` and the `pinctrl notation` match for the `SDA` pin (see the comments in the example zmk-config for more details).
 
-The zmk / zephyr device trees get merged in somewhat complicated ways. Values can be overridden in different locations.
+The firmware also logs the configured pins. So, please make sure they are correct:
 
-So, double-check directly in the final, fully merged `zephyr.dts` if everything looks correct.
+```bash
+[00:00:00.404,663] <inf> ps2_uart: Initializing ps2_uart driver with pins... SCL: P0.06; SDA: P0.08; SDA Pinctrl: P0.08
+[00:00:00.404,724] <inf> ps2_uart: UART device is ready
+[00:00:00.404,754] <inf> ps2_uart: Disabling callback...
+```
 
-In GitHub Actions, find the step `your_keyboard_right - nice_nano_v2 Devicetree file` and use the search feature to look for:
+The pins are logged in the "raw pin notation" (like P0.09), but in your `your_keyboard_right.overlay` it's configured using the "pro micro" notation. You can find both notations in the [nice!nano pinout schematic](https://nicekeyboards.com/docs/nice-nano/pinout-schematic).
 
-- `uart_ps2` (or `gpio_ps2` depending on which you use)
-- `rst-gpios`
-- `uart0_ps2`
+If you can't see those lines (but you do see the other TP communication attempts), then it likely means you need to increase the log delay with:
 
-Keep in mind that in the `zephyr.dts` file, the values will be the "raw hex values", which you will need to convert back.
+```config
+CONFIG_LOG_PROCESS_THREAD_STARTUP_DELAY_MS=3000
+```
 
 ##### Make sure your TrackPoint pinout is correct <!-- omit from toc -->
 
@@ -929,7 +934,7 @@ PS/2 and UART differ in the way they synchronize the data transmission. PS/2 use
 
 The reason I was able to make the UART driver work is because of a lucky coincidence... Many TrackPoints and other pointing devices happen to use a clock frequency that is very similar to one of the frequencies UART supports.
 
-But that doesn't mean that *all* pointing devices use a compatible frequency. It's possible that your device is not working, because of that.
+But that doesn't mean that _all_ pointing devices use a compatible frequency. It's possible that your device is not working, because of that.
 
 So, comment out the following line in your `zmk-config/boards/shields/corne_tp/corne_tp_right.overlay`:
 
@@ -1043,6 +1048,8 @@ So, try to [wipe the controller flash with reset firmware](https://zmk.dev/docs/
 
 You can [download the reset firmware from my example zmk-config releases page](https://github.com/infused-kim/kb_zmk_ps2_mouse_trackpoint_driver-zmk_config/releases/).
 
+<a name="blog-post"></a>
+
 ## 5. Development Journey Blog & Implementation Details
 
 Have you ever wondered how cables work? Or how a peripheral communicates with a host?
@@ -1060,7 +1067,7 @@ Most of the time, we software developers, don't need to concern ourselves with h
 
 Because usually, you'd use a hardware chip that handles all the nitty-gritty details of this communication.
 
-All you have to do is ask the hardware chip to *"Send this data... and notify me when the device sends something back."*
+All you have to do is ask the hardware chip to _"Send this data... and notify me when the device sends something back."_
 
 And the chip does all the work of toggling the electricity on and off and reporting the results back to you.
 
@@ -1105,11 +1112,11 @@ Of course, I am joking... But to be completely honest... That's exactly how it s
 
 I know I know what you might be thinking right now...
 
-> *"Bit-banging? What kind of kinky stuff is this nerd into?!"*
+> _"Bit-banging? What kind of kinky stuff is this nerd into?!"_
 
 But I assure you, no keyboards or computers have been inappropriately touched in this project.
 
-While the term *"bit-banging"* may sound odd, it really is the proper technical term for what I did.
+While the term _"bit-banging"_ may sound odd, it really is the proper technical term for what I did.
 
 [Wikipedia](https://en.wikipedia.org/wiki/Bit_banging) describes it as...
 
@@ -1127,7 +1134,7 @@ A `bit` is the smallest data unit in computing, because it can only store two st
 
 However, a sequence of bits can be combined into bigger units of data. Such as a byte, which consists of eight bits and can store $2^8 = 256$ distinct values, such as 0-255.
 
-For example, the command to tell the TrackPoint to start reporting mouse movement has the decimal value `244` *(which is typically expressed using the [hex system](https://www.techtarget.com/whatis/definition/hexadecimal), which is `0xf4`)*.
+For example, the command to tell the TrackPoint to start reporting mouse movement has the decimal value `244` _(which is typically expressed using the [hex system](https://www.techtarget.com/whatis/definition/hexadecimal), which is `0xf4`)_.
 
 And when converted to the binary system, it is `11110100`.
 
@@ -1368,3 +1375,8 @@ Here are a few resources I found useful for figuring out the pinout of my TrackP
 - [IBM TrackPoint System Version 4.0 Engineering Specification](https://web.mit.edu/bbaren/Public/ykt3eext.pdf)
 - [Sprintek SK7100 PS/2 Pointing Stick Mouse Encoder](https://cdn.thomasnet.com/ccp/10110462/133782.pdf)
 - [Sprintek SK8702 Trackpoint Datasheet](https://cdn.thomasnet.com/ccp/10110462/133781.pdf)
+
+### 6.5. Other Info
+
+- [TrackPoint Cap Comparison](https://baxterhills.com/blog/trackpoints/)
+- [Aftermarked Cap Shop (Including better, rimmed shape)](https://www.etsy.com/shop/SaotoTech#about)
