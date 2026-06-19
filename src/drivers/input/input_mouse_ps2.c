@@ -83,6 +83,9 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #define MOUSE_PS2_CMD_TP_SET_PREFIX_0 0xe2
 #define MOUSE_PS2_CMD_TP_SET_PREFIX_1 0x81
+#define MOUSE_PS2_CMD_BYTE_SETTLE_MS 3
+#define MOUSE_PS2_REPORTING_SETTLE_MS 10
+#define MOUSE_PS2_RESEND_SETTLE_MS 5
 #define MOUSE_PS2_TP_SET_CMD_SETTLE_MS 10
 
 #define MOUSE_PS2_ST_TP_SENSITIVITY "tp_sensitivity"
@@ -253,6 +256,12 @@ int zmk_mouse_ps2_settings_save();
 #define MOUSE_PS2_SET_BIT(data, bit_val, bit_pos)                                             \
     ((data) = ((data) & ~(1U << (bit_pos))) | (((bit_val) ? 1U : 0U) << (bit_pos)))
 
+static void zmk_mouse_ps2_command_settle(int delay_ms) {
+    if (delay_ms > 0) {
+        k_sleep(K_MSEC(delay_ms));
+    }
+}
+
 /*
  * Mouse Activity Packet Reading
  */
@@ -323,6 +332,7 @@ void zmk_mouse_ps2_activity_abort_cmd(const struct device *dev, char *reason) {
 
     data->packet_idx = 0;
     ps2_write(ps2_device, MOUSE_PS2_CMD_RESEND[0]);
+    zmk_mouse_ps2_command_settle(MOUSE_PS2_RESEND_SETTLE_MS);
 
     zmk_mouse_ps2_activity_reset_packet_buffer(dev);
 }
@@ -711,6 +721,7 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(const struct device *d
                          i + 1, cmd_bytes, resp.err);
                 break;
             }
+            zmk_mouse_ps2_command_settle(MOUSE_PS2_CMD_BYTE_SETTLE_MS);
         }
     }
 
@@ -719,6 +730,8 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(const struct device *d
         resp.err = ps2_write(ps2_device, *arg);
         if (resp.err) {
             snprintf(resp.err_msg, sizeof(resp.err_msg), "Could not send arg (%d)", resp.err);
+        } else {
+            zmk_mouse_ps2_command_settle(MOUSE_PS2_CMD_BYTE_SETTLE_MS);
         }
     }
 
@@ -780,6 +793,7 @@ int zmk_mouse_ps2_activity_reporting_enable(const struct device *dev) {
     }
 
     data->activity_reporting_on = true;
+    zmk_mouse_ps2_command_settle(MOUSE_PS2_REPORTING_SETTLE_MS);
 
     return 0;
 }
@@ -799,6 +813,7 @@ int zmk_mouse_ps2_activity_reporting_disable(const struct device *dev) {
         LOG_ERR("Could not disable data reporting: %d", err);
         return err;
     }
+    zmk_mouse_ps2_command_settle(MOUSE_PS2_REPORTING_SETTLE_MS);
 
     err = ps2_disable_callback(ps2_device);
     if (err) {
