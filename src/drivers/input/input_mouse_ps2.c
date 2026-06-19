@@ -678,7 +678,7 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(const struct device *d
     if (resp_len > sizeof(resp.resp_buffer)) {
         resp.err = -11;
         snprintf(resp.err_msg, sizeof(resp.err_msg),
-                 "Response can't be longer than the resp_buffer (%d)", sizeof(resp.err_msg));
+                 "Response can't be longer than the resp_buffer (%d)", sizeof(resp.resp_buffer));
 
         return resp;
     }
@@ -689,7 +689,7 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(const struct device *d
         resp.err = zmk_mouse_ps2_activity_reporting_disable(dev);
         if (resp.err) {
             snprintf(resp.err_msg, sizeof(resp.err_msg), "Could not disable data reporting (%d)",
-                     err);
+                     resp.err);
         }
     }
 
@@ -700,7 +700,7 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(const struct device *d
             resp.err = ps2_write(ps2_device, cmd[i]);
             if (resp.err) {
                 snprintf(resp.err_msg, sizeof(resp.err_msg), "Could not send cmd byte %d/%d (%d)",
-                         i + 1, cmd_bytes, err);
+                         i + 1, cmd_bytes, resp.err);
                 break;
             }
         }
@@ -710,7 +710,7 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(const struct device *d
         LOG_DBG("Sending arg...");
         resp.err = ps2_write(ps2_device, *arg);
         if (resp.err) {
-            snprintf(resp.err_msg, sizeof(resp.err_msg), "Could not send arg (%d)", err);
+            snprintf(resp.err_msg, sizeof(resp.err_msg), "Could not send arg (%d)", resp.err);
         }
     }
 
@@ -720,7 +720,8 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(const struct device *d
             resp.err = ps2_read(ps2_device, &resp.resp_buffer[i]);
             if (resp.err) {
                 snprintf(resp.err_msg, sizeof(resp.err_msg),
-                         "Could not read response cmd byte %d/%d (%d)", i + 1, resp_len, err);
+                         "Could not read response cmd byte %d/%d (%d)", i + 1, resp_len,
+                         resp.err);
                 break;
             }
         }

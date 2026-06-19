@@ -183,6 +183,7 @@ struct ps2_uart_data {
     int cur_write_pos;
     bool write_awaits_resp;
     uint8_t write_awaits_resp_byte;
+    int write_awaits_resp_err;
     struct k_sem write_awaits_resp_sem;
     struct k_sem write_lock;
     struct k_work_delayable write_scl_timout;
@@ -574,11 +575,12 @@ void ps2_uart_read_process_received_byte(const struct device *dev, uint8_t byte)
     LOG_DBG("UART Received: 0x%x", byte);
 
     err = ps2_uart_read_err_check(config->uart_dev);
+    bool ack_with_ignorable_framing_error = byte == PS2_UART_RESP_ACK && err == UART_ERROR_FRAMING;
     if (err != 0) {
         const char *err_str = ps2_uart_read_get_error_str(err);
 
         // Framing errors
-        if (byte == 0xfa && err == UART_ERROR_FRAMING) {
+        if (ack_with_ignorable_framing_error) {
             // Ignore, because it is not a real error and happens frequently
         } else {
             LOG_WRN("UART RX detected error for byte 0x%x: %s (%d)", byte, err_str, err);
@@ -591,18 +593,13 @@ void ps2_uart_read_process_received_byte(const struct device *dev, uint8_t byte)
     // the blocked write process of whether it was a success or not.
     if (data->write_awaits_resp) {
         data->write_awaits_resp_byte = byte;
+        data->write_awaits_resp_err = err;
         data->write_awaits_resp = false;
         k_sem_give(&data->write_awaits_resp_sem);
 
-        // Don't send ack and err responses to the callback and read
-        // data queue.
-        // If it's an ack, the write process will return success.
-        // If it's an error, the write process will return failure.
-        if (byte == PS2_UART_RESP_ACK || byte == PS2_UART_RESP_RESEND ||
-            byte == PS2_UART_RESP_FAILURE) {
-
-            return;
-        }
+        // This byte was consumed as the response to the pending write. Do not
+        // let invalid responses leak into the normal motion packet stream.
+        return;
     }
 
     // If no callback is set, we add the data to a fifo queue
@@ -796,10 +793,9 @@ int ps2_uart_write_byte(const struct device *dev, uint8_t byte) {
 
 // Writes the byte and blocks execution until we read the
 // response byte.
-// Returns failure if the write fails or the response is 0xfe/0xfc (error)
-// Returns success if the response is 0xfa (ack) or any value except of
-// 0xfe.
-// 0xfe, 0xfc and 0xfa are not passed on to the read data queue or callback.
+// Returns failure if the write fails or the response is not a clean ACK.
+// A 0xfa with the common framing-error false positive is accepted because the
+// original driver sees it frequently during normal operation.
 int ps2_uart_write_byte_await_response(const struct device *dev, uint8_t byte) {
     struct ps2_uart_data *data = dev->data;
     int err;
@@ -814,7 +810,9 @@ int ps2_uart_write_byte_await_response(const struct device *dev, uint8_t byte) {
     err = k_sem_take(&data->write_awaits_resp_sem, PS2_UART_TIMEOUT_WRITE_AWAIT_RESPONSE);
 
     uint8_t resp_byte = data->write_awaits_resp_byte;
+    int resp_err = data->write_awaits_resp_err;
     data->write_awaits_resp_byte = 0x0;
+    data->write_awaits_resp_err = 0;
     data->write_awaits_resp = false;
 
     if (err) {
@@ -822,6 +820,12 @@ int ps2_uart_write_byte_await_response(const struct device *dev, uint8_t byte) {
                 "0x%x. Considering send a failure.",
                 byte);
 
+        return PS2_UART_E_WRITE_RESPONSE;
+    }
+
+    if (resp_err != 0 && !(resp_byte == PS2_UART_RESP_ACK && resp_err == UART_ERROR_FRAMING)) {
+        LOG_WRN("Write of 0x%x received response 0x%x with UART error: %s (%d)", byte, resp_byte,
+                ps2_uart_read_get_error_str(resp_err), resp_err);
         return PS2_UART_E_WRITE_RESPONSE;
     }
 
@@ -840,9 +844,11 @@ int ps2_uart_write_byte_await_response(const struct device *dev, uint8_t byte) {
         return PS2_UART_E_WRITE_FAILURE;
     }
 
-    // Most of the time when a write was successful the device
-    // responds with an 0xfa (ack), but for some commands it doesn't.
-    // So we consider all non-0xfe and 0xfc responses as successful.
+    if (resp_byte != PS2_UART_RESP_ACK) {
+        LOG_WRN("Write of 0x%x received unexpected response: 0x%x", byte, resp_byte);
+        return PS2_UART_E_WRITE_RESPONSE;
+    }
+
     return 0;
 }
 
@@ -1240,6 +1246,7 @@ static int ps2_uart_init(const struct device *dev) {
     data->cur_write_pos = 0;
     data->write_awaits_resp = false;
     data->write_awaits_resp_byte = 0x0;
+    data->write_awaits_resp_err = 0;
 
 #if IS_ENABLED(CONFIG_PS2_UART_ENABLE_PS2_RESEND_CALLBACK)
     data->resend_callback_isr = NULL;
