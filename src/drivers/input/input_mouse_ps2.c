@@ -72,6 +72,9 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define MOUSE_PS2_CMD_TP_GET_SECONDARY_ID "\xe1"
 #define MOUSE_PS2_CMD_TP_GET_SECONDARY_ID_RESP_LEN 2
 
+#define MOUSE_PS2_CMD_TP_EXTENDED_PREFIX 0xe2
+#define MOUSE_PS2_CMD_TP_EXTENDED_BYTE_DELAY K_MSEC(10)
+
 #define MOUSE_PS2_CMD_TP_GET_ROM_ID "\xe2\x46"
 #define MOUSE_PS2_CMD_TP_GET_ROM_ID_RESP_LEN 1
 
@@ -683,6 +686,8 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(const struct device *d
         return resp;
     }
 
+    bool is_tp_extended_cmd = (uint8_t)cmd[0] == MOUSE_PS2_CMD_TP_EXTENDED_PREFIX;
+
     if (pause_reporting == true && data->activity_reporting_on == true) {
         LOG_DBG("Disabling mouse activity reporting...");
 
@@ -702,6 +707,10 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(const struct device *d
                 snprintf(resp.err_msg, sizeof(resp.err_msg), "Could not send cmd byte %d/%d (%d)",
                          i + 1, cmd_bytes, err);
                 break;
+            }
+
+            if (is_tp_extended_cmd && (i < cmd_bytes - 1 || arg != NULL)) {
+                k_sleep(MOUSE_PS2_CMD_TP_EXTENDED_BYTE_DELAY);
             }
         }
     }
