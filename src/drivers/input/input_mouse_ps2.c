@@ -73,8 +73,8 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define MOUSE_PS2_CMD_TP_GET_SECONDARY_ID_RESP_LEN 2
 
 #define MOUSE_PS2_CMD_TP_EXTENDED_PREFIX 0xe2
-#define MOUSE_PS2_CMD_TP_EXTENDED_BYTE_DELAY K_MSEC(10)
-#define MOUSE_PS2_CMD_TP_EXTENDED_SETTLE_DELAY K_MSEC(100)
+#define MOUSE_PS2_CMD_TP_EXTENDED_BYTE_DELAY K_MSEC(25)
+#define MOUSE_PS2_CMD_TP_EXTENDED_SETTLE_DELAY K_MSEC(300)
 
 #define MOUSE_PS2_CMD_TP_GET_ROM_ID "\xe2\x46"
 #define MOUSE_PS2_CMD_TP_GET_ROM_ID_RESP_LEN 1
@@ -721,8 +721,6 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(const struct device *d
         resp.err = ps2_write(ps2_device, *arg);
         if (resp.err) {
             snprintf(resp.err_msg, sizeof(resp.err_msg), "Could not send arg (%d)", err);
-        } else if (is_tp_extended_cmd) {
-            k_sleep(MOUSE_PS2_CMD_TP_EXTENDED_SETTLE_DELAY);
         }
     }
 
@@ -736,6 +734,10 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(const struct device *d
                 break;
             }
         }
+    }
+
+    if (resp.err == 0 && is_tp_extended_cmd) {
+        k_sleep(MOUSE_PS2_CMD_TP_EXTENDED_SETTLE_DELAY);
     }
 
     if (pause_reporting == true && prev_activity_reporting_on == true) {
