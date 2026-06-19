@@ -78,6 +78,8 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define MOUSE_PS2_TP_POST_INIT_TUNING_DELAY K_SECONDS(3)
 #define MOUSE_PS2_TP_TUNING_RETRY_ATTEMPTS 3
 #define MOUSE_PS2_TP_TUNING_RETRY_DELAY K_MSEC(500)
+#define MOUSE_PS2_REPORTING_DISABLE_SETTLE_DELAY K_MSEC(250)
+#define MOUSE_PS2_REPORTING_ENABLE_SETTLE_DELAY K_MSEC(100)
 
 #define MOUSE_PS2_CMD_TP_GET_ROM_ID "\xe2\x46"
 #define MOUSE_PS2_CMD_TP_GET_ROM_ID_RESP_LEN 1
@@ -776,6 +778,8 @@ int zmk_mouse_ps2_activity_reporting_enable(const struct device *dev) {
         return err;
     }
 
+    k_sleep(MOUSE_PS2_REPORTING_ENABLE_SETTLE_DELAY);
+
     err = ps2_enable_callback(ps2_device);
     if (err) {
         LOG_ERR("Could not enable ps2 callback: %d", err);
@@ -796,12 +800,24 @@ int zmk_mouse_ps2_activity_reporting_disable(const struct device *dev) {
         return 0;
     }
 
+    int err = ps2_disable_callback(ps2_device);
+    if (err) {
+        LOG_ERR("Could not disable ps2 callback: %d", err);
+        return err;
+    }
+
+    data->packet_idx = 0;
+    memset(data->packet_buffer, 0x0, sizeof(data->packet_buffer));
+    k_work_cancel_delayable(&data->packet_buffer_timeout);
+
     uint8_t cmd = MOUSE_PS2_CMD_DISABLE_REPORTING[0];
-    int err = ps2_write(ps2_device, cmd);
+    err = ps2_write(ps2_device, cmd);
     if (err) {
         LOG_ERR("Could not disable data reporting: %d", err);
         return err;
     }
+
+    k_sleep(MOUSE_PS2_REPORTING_DISABLE_SETTLE_DELAY);
 
     err = ps2_disable_callback(ps2_device);
     if (err) {
