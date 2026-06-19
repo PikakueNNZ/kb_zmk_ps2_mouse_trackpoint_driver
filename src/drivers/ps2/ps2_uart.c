@@ -587,22 +587,18 @@ void ps2_uart_read_process_received_byte(const struct device *dev, uint8_t byte)
 
     LOG_DBG("Received byte: 0x%x", byte);
 
-    // If write_byte_await_response() is waiting, we notify
-    // the blocked write process of whether it was a success or not.
-    if (data->write_awaits_resp) {
+    bool is_write_response = byte == PS2_UART_RESP_ACK || byte == PS2_UART_RESP_RESEND ||
+                             byte == PS2_UART_RESP_FAILURE;
+
+    // If write_byte_await_response() is waiting, only PS/2 write responses
+    // should unblock it. Motion packet bytes can arrive close to host writes
+    // and must not be mistaken for a successful command ACK.
+    if (data->write_awaits_resp && is_write_response) {
         data->write_awaits_resp_byte = byte;
         data->write_awaits_resp = false;
         k_sem_give(&data->write_awaits_resp_sem);
 
-        // Don't send ack and err responses to the callback and read
-        // data queue.
-        // If it's an ack, the write process will return success.
-        // If it's an error, the write process will return failure.
-        if (byte == PS2_UART_RESP_ACK || byte == PS2_UART_RESP_RESEND ||
-            byte == PS2_UART_RESP_FAILURE) {
-
-            return;
-        }
+        return;
     }
 
     // If no callback is set, we add the data to a fifo queue
@@ -804,12 +800,15 @@ int ps2_uart_write_byte_await_response(const struct device *dev, uint8_t byte) {
     struct ps2_uart_data *data = dev->data;
     int err;
 
+    data->write_awaits_resp_byte = 0x0;
+    data->write_awaits_resp = true;
+    k_sem_reset(&data->write_awaits_resp_sem);
+
     err = ps2_uart_write_byte_blocking(dev, byte);
     if (err) {
+        data->write_awaits_resp = false;
         return err;
     }
-
-    data->write_awaits_resp = true;
 
     err = k_sem_take(&data->write_awaits_resp_sem, PS2_UART_TIMEOUT_WRITE_AWAIT_RESPONSE);
 
