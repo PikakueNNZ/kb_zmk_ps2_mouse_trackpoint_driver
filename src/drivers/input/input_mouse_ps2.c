@@ -81,6 +81,10 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define MOUSE_PS2_CMD_TP_SET_CONFIG_BYTE "\xe2\x81\x2c"
 #define MOUSE_PS2_CMD_TP_SET_CONFIG_BYTE_RESP_LEN 0
 
+#define MOUSE_PS2_CMD_TP_SET_PREFIX_0 0xe2
+#define MOUSE_PS2_CMD_TP_SET_PREFIX_1 0x81
+#define MOUSE_PS2_TP_SET_CMD_SETTLE_MS 10
+
 #define MOUSE_PS2_ST_TP_SENSITIVITY "tp_sensitivity"
 #define MOUSE_PS2_CMD_TP_GET_SENSITIVITY "\xe2\x80\x4a"
 #define MOUSE_PS2_CMD_TP_GET_SENSITIVITY_RESP_LEN 1
@@ -667,6 +671,9 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(const struct device *d
 
     // Don't send the string termination NULL byte
     int cmd_bytes = cmd_len - 1;
+    bool is_tp_set_cmd = cmd_bytes >= 2 &&
+                         (uint8_t)cmd[0] == MOUSE_PS2_CMD_TP_SET_PREFIX_0 &&
+                         (uint8_t)cmd[1] == MOUSE_PS2_CMD_TP_SET_PREFIX_1;
     if (cmd_bytes < 1) {
         resp.err = -10;
         snprintf(resp.err_msg, sizeof(resp.err_msg),
@@ -725,6 +732,11 @@ struct zmk_mouse_ps2_send_cmd_resp zmk_mouse_ps2_send_cmd(const struct device *d
                 break;
             }
         }
+    }
+
+    if (resp.err == 0 && is_tp_set_cmd) {
+        LOG_DBG("Waiting %d ms after TrackPoint set command...", MOUSE_PS2_TP_SET_CMD_SETTLE_MS);
+        k_sleep(K_MSEC(MOUSE_PS2_TP_SET_CMD_SETTLE_MS));
     }
 
     if (pause_reporting == true && prev_activity_reporting_on == true) {
