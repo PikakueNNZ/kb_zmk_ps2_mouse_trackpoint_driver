@@ -172,6 +172,7 @@ struct zmk_mouse_ps2_config {
     int sampling_rate;
 
     bool tp_press_to_select;
+    int tp_press_to_select_startup_delay_ms;
     int tp_press_to_select_threshold;
     int tp_sensitivity;
     int tp_neg_inertia;
@@ -204,6 +205,7 @@ struct zmk_mouse_ps2_data {
     int packet_idx;
     struct zmk_mouse_ps2_packet prev_packet;
     struct k_work_delayable packet_buffer_timeout;
+    struct k_work_delayable tp_press_to_select_startup_work;
 #if IS_ENABLED(CONFIG_SETTINGS)
     struct k_work_delayable zmk_mouse_ps2_save_work;
 #endif
@@ -1748,6 +1750,7 @@ int zmk_mouse_ps2_settings_init(const struct device *dev) {
  */
 
 static void zmk_mouse_ps2_init_thread(int dev_ptr, int unused);
+static void zmk_mouse_ps2_tp_press_to_select_startup_work_handler(struct k_work *item);
 int zmk_mouse_ps2_init_power_on_reset(const struct device *dev);
 int zmk_mouse_ps2_init_wait_for_mouse(const struct device *dev);
 
@@ -1757,6 +1760,8 @@ static int zmk_mouse_ps2_init(const struct device *dev) {
 
     LOG_DBG("Inside zmk_mouse_ps2_init");
     data->dev = dev;
+    k_work_init_delayable(&data->tp_press_to_select_startup_work,
+                          zmk_mouse_ps2_tp_press_to_select_startup_work_handler);
 
     LOG_DBG("Creating mouse_ps2 init thread.");
     k_thread_create(&data->thread, data->thread_stack,
@@ -1804,7 +1809,8 @@ static void zmk_mouse_ps2_init_thread(int dev_ptr, int unused) {
 
     if (data->is_trackpoint == true) {
 
-        if (config->tp_press_to_select) {
+        if (config->tp_press_to_select &&
+            config->tp_press_to_select_startup_delay_ms <= 0) {
             LOG_INF("Enabling TP press to select...");
             zmk_mouse_ps2_tp_press_to_select_set(dev, true);
         }
@@ -1880,7 +1886,45 @@ static void zmk_mouse_ps2_init_thread(int dev_ptr, int unused) {
 
     k_work_init_delayable(&data->packet_buffer_timeout, zmk_mouse_ps2_activity_packet_timout);
 
+    if (data->is_trackpoint && config->tp_press_to_select &&
+        config->tp_press_to_select_startup_delay_ms > 0) {
+        LOG_INF("Scheduling delayed TP press to select enable in %d ms...",
+                config->tp_press_to_select_startup_delay_ms);
+        k_work_schedule(&data->tp_press_to_select_startup_work,
+                        K_MSEC(config->tp_press_to_select_startup_delay_ms));
+    }
+
     return;
+}
+
+static void zmk_mouse_ps2_tp_press_to_select_startup_work_handler(struct k_work *item) {
+    struct k_work_delayable *d_work = k_work_delayable_from_work(item);
+    struct zmk_mouse_ps2_data *data =
+        CONTAINER_OF(d_work, struct zmk_mouse_ps2_data, tp_press_to_select_startup_work);
+
+    if (data->dev == NULL) {
+        LOG_ERR("Cannot enable delayed TP press to select: mouse device is not initialized");
+        return;
+    }
+
+    if (!data->is_trackpoint) {
+        LOG_WRN("Cannot enable delayed TP press to select: device is not a TrackPoint");
+        return;
+    }
+
+    if (!data->activity_reporting_on) {
+        LOG_WRN("Cannot enable delayed TP press to select: activity reporting is not active");
+        return;
+    }
+
+    LOG_INF("Delayed enabling TP press to select...");
+    int err = zmk_mouse_ps2_tp_press_to_select_set(data->dev, true);
+    if (err) {
+        LOG_ERR("Delayed TP press to select enable failed: %d", err);
+        return;
+    }
+
+    LOG_INF("Delayed TP press to select enable succeeded");
 }
 
 // Power-On-Reset for trackpoints (and possibly other devices).
@@ -2048,6 +2092,8 @@ DT_INST_FOREACH_STATUS_OKAY(PS2_MOUSE_CALLBACK_DEFINE)
         .sampling_rate = DT_INST_PROP_OR(n, sampling_rate,                                    \
                                          MOUSE_PS2_CMD_SET_SAMPLING_RATE_DEFAULT),            \
         .tp_press_to_select = DT_INST_PROP_OR(n, tp_press_to_select, false),                  \
+        .tp_press_to_select_startup_delay_ms =                                                \
+            DT_INST_PROP_OR(n, tp_press_to_select_startup_delay_ms, 0),                       \
         .tp_press_to_select_threshold = DT_INST_PROP_OR(n, tp_press_to_select_threshold, -1), \
         .tp_sensitivity = DT_INST_PROP_OR(n, tp_sensitivity, -1),                             \
         .tp_neg_inertia = DT_INST_PROP_OR(n, tp_neg_inertia, -1),                             \

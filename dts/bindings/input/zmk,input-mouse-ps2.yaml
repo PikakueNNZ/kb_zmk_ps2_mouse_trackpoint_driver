@@ -38,6 +38,10 @@ properties:
     type: boolean
     description: Enables mouse clicking by pressing hard on the trackpoint. Not all trackpoints support this feature.
 
+  tp-press-to-select-startup-delay-ms:
+    type: int
+    description: Delays the startup press-to-select write until after PS/2 reporting has been enabled. Set to 0 to keep the immediate legacy behavior.
+
   tp-press-to-select-threshold:
     type: int
     description: Adjusts how sensitive the press-to-select feature is. The range is 0 - 255 and the default is 8. You can also adjust this setting at runtime without recompiling using the &mms behavior. If this setting is enabled, then the runtime behavior won't be saved into the runtime settings.
