@@ -75,6 +75,9 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define MOUSE_PS2_CMD_TP_EXTENDED_PREFIX 0xe2
 #define MOUSE_PS2_CMD_TP_EXTENDED_BYTE_DELAY K_MSEC(25)
 #define MOUSE_PS2_CMD_TP_EXTENDED_SETTLE_DELAY K_MSEC(300)
+#define MOUSE_PS2_TP_POST_INIT_TUNING_DELAY K_SECONDS(3)
+#define MOUSE_PS2_TP_TUNING_RETRY_ATTEMPTS 3
+#define MOUSE_PS2_TP_TUNING_RETRY_DELAY K_MSEC(500)
 
 #define MOUSE_PS2_CMD_TP_GET_ROM_ID "\xe2\x46"
 #define MOUSE_PS2_CMD_TP_GET_ROM_ID_RESP_LEN 1
@@ -1697,6 +1700,94 @@ int zmk_mouse_ps2_settings_init(const struct device *dev) {
     return 0;
 }
 
+static int zmk_mouse_ps2_trackpoint_apply_deferred_config(const struct device *dev) {
+    struct zmk_mouse_ps2_data *data = dev->data;
+    const struct zmk_mouse_ps2_config *config = dev->config;
+    int err = 0;
+    int last_err = 0;
+
+    if (data->is_trackpoint == false) {
+        return 0;
+    }
+
+#define ZMK_MOUSE_PS2_RETRY_TP_CONFIG(_descr, _expr)                                          \
+    do {                                                                                      \
+        err = 0;                                                                              \
+        for (int attempt = 0; attempt < MOUSE_PS2_TP_TUNING_RETRY_ATTEMPTS; attempt++) {      \
+            if (attempt > 0) {                                                                \
+                LOG_WRN("Retrying TrackPoint %s (%d/%d)", _descr, attempt + 1,                \
+                        MOUSE_PS2_TP_TUNING_RETRY_ATTEMPTS);                                  \
+                k_sleep(MOUSE_PS2_TP_TUNING_RETRY_DELAY);                                     \
+            }                                                                                 \
+            err = (_expr);                                                                    \
+            if (err == 0) {                                                                   \
+                break;                                                                        \
+            }                                                                                 \
+            LOG_WRN("TrackPoint %s failed on attempt %d/%d: %d", _descr, attempt + 1,         \
+                    MOUSE_PS2_TP_TUNING_RETRY_ATTEMPTS, err);                                 \
+        }                                                                                     \
+        if (err) {                                                                            \
+            LOG_ERR("Giving up TrackPoint %s: %d", _descr, err);                              \
+            last_err = err;                                                                   \
+        }                                                                                     \
+    } while (0)
+
+    if (config->tp_press_to_select) {
+        LOG_INF("Deferred TP config: enabling press to select...");
+        ZMK_MOUSE_PS2_RETRY_TP_CONFIG("press to select",
+                                      zmk_mouse_ps2_tp_press_to_select_set(dev, true));
+    }
+
+    if (config->tp_press_to_select_threshold != -1) {
+        LOG_INF("Deferred TP config: setting press to select threshold to %d...",
+                config->tp_press_to_select_threshold);
+        ZMK_MOUSE_PS2_RETRY_TP_CONFIG(
+            "press to select threshold",
+            zmk_mouse_ps2_tp_pts_threshold_set(dev, config->tp_press_to_select_threshold));
+    }
+
+    if (config->tp_sensitivity != -1) {
+        LOG_INF("Deferred TP config: setting sensitivity to %d...", config->tp_sensitivity);
+        ZMK_MOUSE_PS2_RETRY_TP_CONFIG("sensitivity",
+                                      zmk_mouse_ps2_tp_sensitivity_set(dev,
+                                                                       config->tp_sensitivity));
+    }
+
+    if (config->tp_neg_inertia != -1) {
+        LOG_INF("Deferred TP config: setting inertia to %d...", config->tp_neg_inertia);
+        ZMK_MOUSE_PS2_RETRY_TP_CONFIG("negative inertia",
+                                      zmk_mouse_ps2_tp_neg_inertia_set(dev,
+                                                                       config->tp_neg_inertia));
+    }
+
+    if (config->tp_val6_upper_speed != -1) {
+        LOG_INF("Deferred TP config: setting value 6 upper speed plateau to %d...",
+                config->tp_val6_upper_speed);
+        ZMK_MOUSE_PS2_RETRY_TP_CONFIG(
+            "value 6 upper speed plateau",
+            zmk_mouse_ps2_tp_value6_upper_plateau_speed_set(dev, config->tp_val6_upper_speed));
+    }
+
+    if (config->tp_x_invert) {
+        LOG_INF("Deferred TP config: inverting x axis.");
+        ZMK_MOUSE_PS2_RETRY_TP_CONFIG("invert x", zmk_mouse_ps2_tp_invert_x_set(dev, true));
+    }
+
+    if (config->tp_y_invert) {
+        LOG_INF("Deferred TP config: inverting y axis.");
+        ZMK_MOUSE_PS2_RETRY_TP_CONFIG("invert y", zmk_mouse_ps2_tp_invert_y_set(dev, true));
+    }
+
+    if (config->tp_xy_swap) {
+        LOG_INF("Deferred TP config: swapping x and y axis.");
+        ZMK_MOUSE_PS2_RETRY_TP_CONFIG("swap xy", zmk_mouse_ps2_tp_swap_xy_set(dev, true));
+    }
+
+#undef ZMK_MOUSE_PS2_RETRY_TP_CONFIG
+
+    return last_err;
+}
+
 /*
  * Init PS2 mouse
  */
@@ -1757,54 +1848,13 @@ static void zmk_mouse_ps2_init_thread(int dev_ptr, int unused) {
     LOG_INF("Connected device is a %s", device_descr);
 
     if (data->is_trackpoint == true) {
-
-        if (config->tp_press_to_select) {
-            LOG_INF("Enabling TP press to select...");
-            zmk_mouse_ps2_tp_press_to_select_set(dev, true);
-        }
-
-        if (config->tp_press_to_select_threshold != -1) {
-            LOG_INF("Setting TP press to select thereshold to %d...",
-                    config->tp_press_to_select_threshold);
-            zmk_mouse_ps2_tp_pts_threshold_set(dev, config->tp_press_to_select_threshold);
-        }
-
-        if (config->tp_sensitivity != -1) {
-            LOG_INF("Setting TP sensitivity to %d...", config->tp_sensitivity);
-            zmk_mouse_ps2_tp_sensitivity_set(dev, config->tp_sensitivity);
-        }
-
-        if (config->tp_neg_inertia != -1) {
-            LOG_INF("Setting TP inertia to %d...", config->tp_neg_inertia);
-            zmk_mouse_ps2_tp_neg_inertia_set(dev, config->tp_neg_inertia);
-        }
-
-        if (config->tp_val6_upper_speed != -1) {
-            LOG_INF("Setting TP value 6 upper speed plateau to %d...", config->tp_val6_upper_speed);
-            zmk_mouse_ps2_tp_value6_upper_plateau_speed_set(dev, config->tp_val6_upper_speed);
-        }
-        if (config->tp_x_invert) {
-            LOG_INF("Inverting trackpoint x axis.");
-            zmk_mouse_ps2_tp_invert_x_set(dev, true);
-        }
-
-        if (config->tp_y_invert) {
-            LOG_INF("Inverting trackpoint y axis.");
-            zmk_mouse_ps2_tp_invert_y_set(dev, true);
-        }
-
-        if (config->tp_xy_swap) {
-            LOG_INF("Swapping trackpoint x and y axis.");
-            zmk_mouse_ps2_tp_swap_xy_set(dev, true);
-        }
+        LOG_INF("Deferring TrackPoint tuning until after data reporting is active.");
     }
 
     if (config->scroll_mode) {
         LOG_INF("Enabling scroll mode.");
         zmk_mouse_ps2_set_packet_mode(dev, MOUSE_PS2_PACKET_MODE_SCROLL);
     }
-
-    zmk_mouse_ps2_settings_init(dev);
 
     // Configure read callback
     LOG_DBG("Configuring ps2 callback...");
@@ -1824,6 +1874,8 @@ static void zmk_mouse_ps2_init_thread(int dev_ptr, int unused) {
         return;
     }
 
+    k_work_init_delayable(&data->packet_buffer_timeout, zmk_mouse_ps2_activity_packet_timout);
+
     LOG_INF("Enabling data reporting and ps2 callback...");
     err = zmk_mouse_ps2_activity_reporting_enable(dev);
     if (err) {
@@ -1832,7 +1884,16 @@ static void zmk_mouse_ps2_init_thread(int dev_ptr, int unused) {
         LOG_DBG("Successfully activated ps2 callback");
     }
 
-    k_work_init_delayable(&data->packet_buffer_timeout, zmk_mouse_ps2_activity_packet_timout);
+    if (data->is_trackpoint == true) {
+        LOG_INF("Waiting before deferred TrackPoint tuning...");
+        k_sleep(MOUSE_PS2_TP_POST_INIT_TUNING_DELAY);
+        err = zmk_mouse_ps2_trackpoint_apply_deferred_config(dev);
+        if (err) {
+            LOG_ERR("Deferred TrackPoint tuning completed with errors: %d", err);
+        }
+    }
+
+    zmk_mouse_ps2_settings_init(dev);
 
     return;
 }
