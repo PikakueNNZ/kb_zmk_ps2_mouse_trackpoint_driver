@@ -249,8 +249,9 @@ int zmk_mouse_ps2_settings_save();
  * Helpers
  */
 
-#define MOUSE_PS2_GET_BIT(data, bit_pos) ((data >> bit_pos) & 0x1)
-#define MOUSE_PS2_SET_BIT(data, bit_val, bit_pos) (data |= (bit_val) << bit_pos)
+#define MOUSE_PS2_GET_BIT(data, bit_pos) (((data) >> (bit_pos)) & 0x1)
+#define MOUSE_PS2_SET_BIT(data, bit_val, bit_pos)                                             \
+    ((data) = ((data) & ~(1U << (bit_pos))) | (((bit_val) ? 1U : 0U) << (bit_pos)))
 
 /*
  * Mouse Activity Packet Reading
@@ -1121,14 +1122,17 @@ int zmk_mouse_ps2_tp_set_config_option(const struct device *dev,
     bool is_enabled = MOUSE_PS2_GET_BIT(config_byte, config_bit);
 
     if (is_enabled == enabled) {
-        LOG_DBG("Trackpoint %s was already %s... not doing anything.", descr,
-                is_enabled ? "enabled" : "disabled");
+        LOG_DBG("Trackpoint %s was already %s in config byte 0x%02x... not doing anything.",
+                descr, is_enabled ? "enabled" : "disabled", config_byte);
         return 0;
     }
 
-    LOG_DBG("Setting trackpoint %s: %s", descr, enabled ? "enabled" : "disabled");
+    uint8_t original_config_byte = config_byte;
 
     MOUSE_PS2_SET_BIT(config_byte, enabled, config_bit);
+
+    LOG_DBG("Setting trackpoint %s: %s, config byte 0x%02x -> 0x%02x", descr,
+            enabled ? "enabled" : "disabled", original_config_byte, config_byte);
 
     struct zmk_mouse_ps2_send_cmd_resp resp = zmk_mouse_ps2_send_cmd(
         dev,
