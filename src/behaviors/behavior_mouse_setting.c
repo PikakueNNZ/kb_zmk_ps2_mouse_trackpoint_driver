@@ -1,5 +1,7 @@
 #define DT_DRV_COMPAT zmk_behavior_mouse_setting
 
+#include <stdbool.h>
+
 #include <zephyr/device.h>
 #include <drivers/behavior.h>
 #include <zephyr/logging/log.h>
@@ -41,6 +43,11 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
         return zmk_mouse_ps2_tp_pts_threshold_change(INCREMENT_TP_PTS_THRESHOLD);
     case MS_TP_PTS_THRESHOLD_DECR:
         return zmk_mouse_ps2_tp_pts_threshold_change(-INCREMENT_TP_PTS_THRESHOLD);
+
+    case MS_TP_PRESS_TO_SELECT_ENABLE:
+        return zmk_mouse_ps2_tp_press_to_select_change(true);
+    case MS_TP_PRESS_TO_SELECT_DISABLE:
+        return zmk_mouse_ps2_tp_press_to_select_change(false);
     }
 
     return -ENOTSUP;

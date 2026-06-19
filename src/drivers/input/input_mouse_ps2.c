@@ -1139,6 +1139,49 @@ int zmk_mouse_ps2_tp_press_to_select_set(const struct device *dev, bool enabled)
     return err;
 }
 
+int zmk_mouse_ps2_tp_press_to_select_change_dev(const struct device *dev, bool enabled) {
+    if (dev == NULL) {
+        LOG_ERR("Cannot change TrackPoint press-to-select: mouse device is not initialized");
+        return -ENODEV;
+    }
+
+    struct zmk_mouse_ps2_data *data = dev->data;
+
+    if (!data->is_trackpoint) {
+        LOG_WRN("Cannot change TrackPoint press-to-select: device is not identified as a TrackPoint");
+        return -ENODEV;
+    }
+
+    LOG_INF("Manually %s TrackPoint press-to-select", enabled ? "enabling" : "disabling");
+
+    int err = zmk_mouse_ps2_tp_press_to_select_set(dev, enabled);
+    if (err) {
+        LOG_ERR("Manual TrackPoint press-to-select %s failed: %d",
+                enabled ? "enable" : "disable", err);
+        return err;
+    }
+
+    LOG_INF("Manual TrackPoint press-to-select %s succeeded",
+            enabled ? "enable" : "disable");
+
+    return 0;
+}
+
+int zmk_mouse_ps2_tp_press_to_select_change(bool enabled) {
+    int err = 0;
+
+    #define ZMK_PS2_MOUSE_DEFINE_PTS_CHANGE_DEV(n)                                            \
+        do {                                                                                  \
+            int dev_err = zmk_mouse_ps2_tp_press_to_select_change_dev(data##n.dev, enabled);  \
+            if (dev_err != 0) {                                                               \
+                err = dev_err;                                                                \
+            }                                                                                 \
+        } while (0);
+    DT_INST_FOREACH_STATUS_OKAY(ZMK_PS2_MOUSE_DEFINE_PTS_CHANGE_DEV)
+
+    return err;
+}
+
 int zmk_mouse_ps2_tp_invert_x_set(const struct device *dev, bool enabled) {
     int err = zmk_mouse_ps2_tp_set_config_option(dev,
                                                  MOUSE_PS2_TP_CONFIG_BIT_INVERT_X, enabled,
