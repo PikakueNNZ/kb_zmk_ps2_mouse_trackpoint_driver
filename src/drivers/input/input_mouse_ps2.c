@@ -274,7 +274,7 @@ int zmk_mouse_ps2_settings_save();
 void zmk_mouse_ps2_activity_process_cmd(const struct device *dev, 
                                         zmk_mouse_ps2_packet_mode packet_mode, uint8_t packet_state,
                                         uint8_t packet_x, uint8_t packet_y, uint8_t packet_extra);
-void zmk_mouse_ps2_activity_abort_cmd(const struct device *dev, char *reason);
+void zmk_mouse_ps2_activity_abort_cmd(const struct device *dev, const char *reason);
 void zmk_mouse_ps2_activity_move_mouse(const struct device *dev, int16_t mov_x, int16_t mov_y);
 void zmk_mouse_ps2_activity_scroll(const struct device *dev, int8_t scroll_y);
 void zmk_mouse_ps2_activity_click_buttons(const struct device *dev, 
@@ -302,8 +302,7 @@ void zmk_mouse_ps2_activity_callback(const struct device *dev,
 
         // Bit 3 of the first command byte should always be 1
         // If it is not, then we are definitely out of alignment.
-        // So we ask the device to resend the entire 3-byte command
-        // again.
+        // Drop the bad byte and wait for the next valid packet start.
         int alignment_bit = MOUSE_PS2_GET_BIT(byte, 3);
         if (alignment_bit != 1) {
 
@@ -328,15 +327,12 @@ void zmk_mouse_ps2_activity_callback(const struct device *dev,
     k_work_schedule(&data->packet_buffer_timeout, MOUSE_PS2_TIMEOUT_ACTIVITY_PACKET);
 }
 
-void zmk_mouse_ps2_activity_abort_cmd(const struct device *dev, char *reason) {
+void zmk_mouse_ps2_activity_abort_cmd(const struct device *dev, const char *reason) {
     struct zmk_mouse_ps2_data *data = dev->data;
-    const struct zmk_mouse_ps2_config *config = dev->config;
-    const struct device *ps2_device = config->ps2_device;
 
-    LOG_ERR("PS/2 Mouse cmd buffer is out of aligment. Requesting resend: %s", reason);
+    LOG_WRN("PS/2 Mouse packet buffer is out of alignment. Dropping packet: %s", reason);
 
     data->packet_idx = 0;
-    ps2_write(ps2_device, MOUSE_PS2_CMD_RESEND[0]);
 
     zmk_mouse_ps2_activity_reset_packet_buffer(dev);
 }
@@ -1627,7 +1623,23 @@ static void zmk_mouse_ps2_settings_save_work(struct k_work *work) {
     struct zmk_mouse_ps2_data *data = CONTAINER_OF(work_delayable,
                                                    struct zmk_mouse_ps2_data,
                                                    zmk_mouse_ps2_save_work);
-    // const struct device *dev = data->dev;
+    const struct device *dev = data->dev;
+    bool restore_activity_reporting = dev != NULL && data->activity_reporting_on;
+    int err = 0;
+
+    if (restore_activity_reporting) {
+        LOG_DBG("Disabling mouse activity reporting before settings save...");
+        zmk_mouse_ps2_activity_reset_packet_buffer(dev);
+
+        err = zmk_mouse_ps2_activity_reporting_disable(dev);
+        if (err) {
+            LOG_WRN("Deferring PS/2 Mouse Settings save; could not disable data reporting: %d",
+                    err);
+            k_work_reschedule(&data->zmk_mouse_ps2_save_work,
+                              K_MSEC(CONFIG_ZMK_SETTINGS_SAVE_DEBOUNCE));
+            return;
+        }
+    }
 
     LOG_INF("Saving PS/2 Mouse Settings.");
 
@@ -1642,6 +1654,19 @@ static void zmk_mouse_ps2_settings_save_work(struct k_work *work) {
     zmk_mouse_ps2_settings_save_setting(MOUSE_PS2_ST_TP_DRAG_HYSTERESIS,
                                         &data->tp_drag_hysteresis,
                                         sizeof(data->tp_drag_hysteresis));
+
+    if (restore_activity_reporting) {
+        LOG_DBG("Re-enabling mouse activity reporting after settings save...");
+        zmk_mouse_ps2_activity_reset_packet_buffer(dev);
+
+        err = zmk_mouse_ps2_activity_reporting_enable(dev);
+        if (err) {
+            LOG_ERR("Could not re-enable data reporting after settings save: %d", err);
+            return;
+        }
+
+        zmk_mouse_ps2_activity_reset_packet_buffer(dev);
+    }
 }
 #endif
 
