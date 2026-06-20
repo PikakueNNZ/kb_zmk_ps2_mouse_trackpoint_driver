@@ -1572,6 +1572,7 @@ int zmk_mouse_ps2_settings_save(const struct device *dev) {
 }
 
 int zmk_mouse_ps2_settings_reset_dev(const struct device *dev) {
+    const struct zmk_mouse_ps2_config *config = dev->config;
 
     LOG_INF("Deleting runtime settings...");
     zmk_mouse_ps2_settings_reset_setting(MOUSE_PS2_ST_TP_SENSITIVITY);
@@ -1580,15 +1581,27 @@ int zmk_mouse_ps2_settings_reset_dev(const struct device *dev) {
     zmk_mouse_ps2_settings_reset_setting(MOUSE_PS2_ST_TP_PTS_THRESHOLD);
 
     LOG_INF("Restoring default settings to TP..");
-    zmk_mouse_ps2_tp_sensitivity_set(dev, MOUSE_PS2_CMD_TP_SET_SENSITIVITY_DEFAULT);
+    zmk_mouse_ps2_tp_sensitivity_set(
+        dev,
+        config->tp_sensitivity != -1 ? config->tp_sensitivity
+                                     : MOUSE_PS2_CMD_TP_SET_SENSITIVITY_DEFAULT);
 
-    zmk_mouse_ps2_tp_neg_inertia_set(dev, MOUSE_PS2_CMD_TP_SET_NEG_INERTIA_DEFAULT);
+    zmk_mouse_ps2_tp_neg_inertia_set(
+        dev,
+        config->tp_neg_inertia != -1 ? config->tp_neg_inertia
+                                     : MOUSE_PS2_CMD_TP_SET_NEG_INERTIA_DEFAULT);
 
     zmk_mouse_ps2_tp_value6_upper_plateau_speed_set(
         dev,
-        MOUSE_PS2_CMD_TP_SET_VALUE6_UPPER_PLATEAU_SPEED_DEFAULT);
+        config->tp_val6_upper_speed != -1
+            ? config->tp_val6_upper_speed
+            : MOUSE_PS2_CMD_TP_SET_VALUE6_UPPER_PLATEAU_SPEED_DEFAULT);
 
-    zmk_mouse_ps2_tp_pts_threshold_set(dev, MOUSE_PS2_CMD_TP_SET_PTS_THRESHOLD_DEFAULT);
+    zmk_mouse_ps2_tp_pts_threshold_set(
+        dev,
+        config->tp_press_to_select_threshold != -1
+            ? config->tp_press_to_select_threshold
+            : MOUSE_PS2_CMD_TP_SET_PTS_THRESHOLD_DEFAULT);
 
     return 0;
 }
@@ -1612,7 +1625,7 @@ int zmk_mouse_ps2_settings_log_dev(const struct device *dev) {
     tp-sensitivity = <%d>; \n\
     tp-neg-inertia = <%d>; \n\
     tp-val6-upper-speed = <%d>; \n\
-    tp-tp-press-to-select-threshold = <%d>; \n\
+    tp-press-to-select-threshold = <%d>; \n\
 }",
              data->tp_sensitivity, data->tp_neg_inertia, data->tp_value6, data->tp_pts_threshold);
 

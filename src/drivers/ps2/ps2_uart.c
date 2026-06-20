@@ -800,12 +800,16 @@ int ps2_uart_write_byte_await_response(const struct device *dev, uint8_t byte) {
     struct ps2_uart_data *data = dev->data;
     int err;
 
+    data->write_awaits_resp = false;
+    data->write_awaits_resp_byte = 0x0;
+    data->write_awaits_resp_err = 0;
+    k_sem_reset(&data->write_awaits_resp_sem);
+
     err = ps2_uart_write_byte_blocking(dev, byte);
     if (err) {
+        data->write_awaits_resp = false;
         return err;
     }
-
-    data->write_awaits_resp = true;
 
     err = k_sem_take(&data->write_awaits_resp_sem, PS2_UART_TIMEOUT_WRITE_AWAIT_RESPONSE);
 
@@ -1103,16 +1107,18 @@ void ps2_uart_write_finish(const struct device *dev, bool successful, char *desc
     if (successful) {
         LOG_DBG("Successfully wrote value 0x%x", data->cur_write_byte);
         data->cur_write_status = PS2_UART_WRITE_STATUS_SUCCESS;
+        data->write_awaits_resp = true;
     } else { // Failure
         LOG_ERR("Failed to write value 0x%x: %s", data->cur_write_byte, descr);
 
         data->cur_write_status = PS2_UART_WRITE_STATUS_FAILURE;
+        data->write_awaits_resp = false;
     }
 
     err = ps2_uart_set_mode_read(dev);
     if (err != 0) {
         LOG_ERR("Could not configure driver for read mode: %d", err);
-        return;
+        data->write_awaits_resp = false;
     }
 
     LOG_DBG("END WRITE: 0x%x\n", data->cur_write_byte);
