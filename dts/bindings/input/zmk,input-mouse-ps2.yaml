@@ -46,6 +46,10 @@ properties:
     type: int
     description: Adjusts how sensitive the press-to-select feature is. The range is 0 - 255 and the default is 8. You can also adjust this setting at runtime without recompiling using the &mms behavior. If this setting is enabled, then the runtime behavior won't be saved into the runtime settings.
 
+  tp-drag-hysteresis:
+    type: int
+    description: Adjusts the TrackPoint press-to-select drag hysteresis setting. The range is 0 - 255 and the default is 255. Runtime tuning uses odd-preserving steps because the least significant bit changes the drag hold behavior.
+
   tp-sensitivity:
     type: int
     description: Adjusts the sensitivity setting on trackpoint devices. The range is 0 - 255 and the default is 128. You can also adjust this setting at runtime without recompiling using the &mms behavior. If this setting is enabled, then the runtime behavior won't be saved into the runtime settings.

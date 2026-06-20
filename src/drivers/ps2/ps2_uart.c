@@ -91,7 +91,7 @@ LOG_MODULE_REGISTER(ps2_uart);
 // the clock. It's supposed to start immediately, but some devices
 // need much longer if you are asking them to interrupt an
 // ongoing read.
-#define PS2_UART_TIMING_SCL_INHIBITION_RESP_MAX 3000
+#define PS2_UART_TIMING_SCL_INHIBITION_RESP_MAX 8000
 #define PS2_UART_TIMEOUT_WRITE_SCL_START K_USEC(PS2_UART_TIMING_SCL_INHIBITION_RESP_MAX)
 
 // Max time we allow the device to send the next clock signal during writes.

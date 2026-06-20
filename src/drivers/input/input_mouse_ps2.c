@@ -125,6 +125,16 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define MOUSE_PS2_CMD_TP_SET_PTS_THRESHOLD_MAX 255
 #define MOUSE_PS2_CMD_TP_SET_PTS_THRESHOLD_DEFAULT 0x08
 
+#define MOUSE_PS2_ST_TP_DRAG_HYSTERESIS "tp_drag_hysteresis"
+#define MOUSE_PS2_CMD_TP_GET_DRAG_HYSTERESIS "\xe2\x80\x58"
+#define MOUSE_PS2_CMD_TP_GET_DRAG_HYSTERESIS_RESP_LEN 1
+
+#define MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS "\xe2\x81\x58"
+#define MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS_RESP_LEN 0
+#define MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS_MIN 0
+#define MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS_MAX 255
+#define MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS_DEFAULT 0xff
+
 // Trackpoint Config Bits
 #define MOUSE_PS2_TP_CONFIG_BIT_PRESS_TO_SELECT 0x00
 #define MOUSE_PS2_TP_CONFIG_BIT_RESERVED 0x01
@@ -174,6 +184,7 @@ struct zmk_mouse_ps2_config {
     bool tp_press_to_select;
     int tp_press_to_select_startup_delay_ms;
     int tp_press_to_select_threshold;
+    int tp_drag_hysteresis;
     int tp_sensitivity;
     int tp_neg_inertia;
     int tp_val6_upper_speed;
@@ -225,6 +236,7 @@ struct zmk_mouse_ps2_data {
     uint8_t tp_neg_inertia;
     uint8_t tp_value6;
     uint8_t tp_pts_threshold;
+    uint8_t tp_drag_hysteresis;
 
     void *activity_callback;
     void *activity_resend_callback;
@@ -1505,6 +1517,78 @@ int zmk_mouse_ps2_tp_pts_threshold_change(int amount) {
 
     return 0;
 }
+
+int zmk_mouse_ps2_tp_drag_hysteresis_get(const struct device *dev, uint8_t *drag_hysteresis) {
+    struct zmk_mouse_ps2_send_cmd_resp resp =
+        zmk_mouse_ps2_send_cmd(dev,
+                               MOUSE_PS2_CMD_TP_GET_DRAG_HYSTERESIS,
+                               sizeof(MOUSE_PS2_CMD_TP_GET_DRAG_HYSTERESIS), NULL,
+                               MOUSE_PS2_CMD_TP_GET_DRAG_HYSTERESIS_RESP_LEN, true);
+    if (resp.err) {
+        LOG_ERR("Could not get trackpoint drag hysteresis");
+        return resp.err;
+    }
+
+    uint8_t drag_hysteresis_int = resp.resp_buffer[0];
+    *drag_hysteresis = drag_hysteresis_int;
+
+    LOG_DBG("Trackpoint drag hysteresis is %d", drag_hysteresis_int);
+
+    return 0;
+}
+
+int zmk_mouse_ps2_tp_drag_hysteresis_set(const struct device *dev, int drag_hysteresis) {
+    struct zmk_mouse_ps2_data *data = dev->data;
+
+    if (drag_hysteresis < MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS_MIN ||
+        drag_hysteresis > MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS_MAX) {
+        LOG_ERR("Invalid drag hysteresis value %d. Min: %d; Max: %d", drag_hysteresis,
+                MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS_MIN,
+                MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS_MAX);
+        return 1;
+    }
+
+    uint8_t arg = drag_hysteresis;
+
+    struct zmk_mouse_ps2_send_cmd_resp resp =
+        zmk_mouse_ps2_send_cmd(dev,
+                               MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS,
+                               sizeof(MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS), &arg,
+                               MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS_RESP_LEN, true);
+    if (resp.err) {
+        LOG_ERR("Could not set drag hysteresis to %d", drag_hysteresis);
+        return resp.err;
+    }
+
+    data->tp_drag_hysteresis = drag_hysteresis;
+
+    LOG_INF("Successfully set TP drag hysteresis to %d", drag_hysteresis);
+
+    return 0;
+}
+
+int zmk_mouse_ps2_tp_drag_hysteresis_change_dev(const struct device *dev, int amount) {
+    struct zmk_mouse_ps2_data *data = dev->data;
+
+    int new_val = data->tp_drag_hysteresis + amount;
+
+    LOG_INF("Setting drag hysteresis to %d", new_val);
+    int err = zmk_mouse_ps2_tp_drag_hysteresis_set(dev, new_val);
+    if (err == 0) {
+        zmk_mouse_ps2_settings_save(dev);
+    }
+
+    return err;
+}
+
+int zmk_mouse_ps2_tp_drag_hysteresis_change(int amount) {
+
+    #define ZMK_PS2_MOUSE_DEFINE_DRAG_HYSTERESIS_CHG_DEV(n) \
+        zmk_mouse_ps2_tp_drag_hysteresis_change_dev(data##n.dev, amount);
+    DT_INST_FOREACH_STATUS_OKAY(ZMK_PS2_MOUSE_DEFINE_DRAG_HYSTERESIS_CHG_DEV)
+
+    return 0;
+}
 /*
  * State Saving
  */
@@ -1555,6 +1639,9 @@ static void zmk_mouse_ps2_settings_save_work(struct k_work *work) {
                                         sizeof(data->tp_value6));
     zmk_mouse_ps2_settings_save_setting(MOUSE_PS2_ST_TP_PTS_THRESHOLD, &data->tp_pts_threshold,
                                         sizeof(data->tp_pts_threshold));
+    zmk_mouse_ps2_settings_save_setting(MOUSE_PS2_ST_TP_DRAG_HYSTERESIS,
+                                        &data->tp_drag_hysteresis,
+                                        sizeof(data->tp_drag_hysteresis));
 }
 #endif
 
@@ -1579,6 +1666,7 @@ int zmk_mouse_ps2_settings_reset_dev(const struct device *dev) {
     zmk_mouse_ps2_settings_reset_setting(MOUSE_PS2_ST_TP_NEG_INERTIA);
     zmk_mouse_ps2_settings_reset_setting(MOUSE_PS2_ST_TP_VALUE6);
     zmk_mouse_ps2_settings_reset_setting(MOUSE_PS2_ST_TP_PTS_THRESHOLD);
+    zmk_mouse_ps2_settings_reset_setting(MOUSE_PS2_ST_TP_DRAG_HYSTERESIS);
 
     LOG_INF("Restoring default settings to TP..");
     zmk_mouse_ps2_tp_sensitivity_set(
@@ -1603,6 +1691,12 @@ int zmk_mouse_ps2_settings_reset_dev(const struct device *dev) {
             ? config->tp_press_to_select_threshold
             : MOUSE_PS2_CMD_TP_SET_PTS_THRESHOLD_DEFAULT);
 
+    zmk_mouse_ps2_tp_drag_hysteresis_set(
+        dev,
+        config->tp_drag_hysteresis != -1
+            ? config->tp_drag_hysteresis
+            : MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS_DEFAULT);
+
     return 0;
 }
 
@@ -1618,7 +1712,7 @@ int zmk_mouse_ps2_settings_reset() {
 int zmk_mouse_ps2_settings_log_dev(const struct device *dev) {
     struct zmk_mouse_ps2_data *data = dev->data;
 
-    char settings_str[250];
+    char settings_str[300];
 
     snprintf(settings_str, sizeof(settings_str), " \n\
 &mouse_ps2_conf = { \n\
@@ -1626,8 +1720,10 @@ int zmk_mouse_ps2_settings_log_dev(const struct device *dev) {
     tp-neg-inertia = <%d>; \n\
     tp-val6-upper-speed = <%d>; \n\
     tp-press-to-select-threshold = <%d>; \n\
+    tp-drag-hysteresis = <%d>; \n\
 }",
-             data->tp_sensitivity, data->tp_neg_inertia, data->tp_value6, data->tp_pts_threshold);
+             data->tp_sensitivity, data->tp_neg_inertia, data->tp_value6,
+             data->tp_pts_threshold, data->tp_drag_hysteresis);
 
     LOG_INF("Current settings... %s", settings_str);
 
@@ -1715,6 +1811,16 @@ static int zmk_mouse_ps2_settings_restore_dev(const struct device *dev,
         }
 
         return zmk_mouse_ps2_tp_pts_threshold_set(dev, setting_val);
+    } else if (strcmp(name, MOUSE_PS2_ST_TP_DRAG_HYSTERESIS) == 0) {
+        if (config->tp_drag_hysteresis != -1) {
+            LOG_WRN("Not restoring runtime settings for %s with value %d, because deviceconfig "
+                    "defines the setting with value %d",
+                    name, setting_val, config->tp_drag_hysteresis);
+
+            return 0;
+        }
+
+        return zmk_mouse_ps2_tp_drag_hysteresis_set(dev, setting_val);
     }
 
     return -EINVAL;
@@ -1832,6 +1938,11 @@ static void zmk_mouse_ps2_init_thread(int dev_ptr, int unused) {
             LOG_INF("Setting TP press to select thereshold to %d...",
                     config->tp_press_to_select_threshold);
             zmk_mouse_ps2_tp_pts_threshold_set(dev, config->tp_press_to_select_threshold);
+        }
+
+        if (config->tp_drag_hysteresis != -1) {
+            LOG_INF("Setting TP drag hysteresis to %d...", config->tp_drag_hysteresis);
+            zmk_mouse_ps2_tp_drag_hysteresis_set(dev, config->tp_drag_hysteresis);
         }
 
         if (config->tp_sensitivity != -1) {
@@ -2086,6 +2197,7 @@ DT_INST_FOREACH_STATUS_OKAY(PS2_MOUSE_CALLBACK_DEFINE)
         .tp_neg_inertia = MOUSE_PS2_CMD_TP_SET_NEG_INERTIA_DEFAULT,                           \
         .tp_value6 = MOUSE_PS2_CMD_TP_SET_VALUE6_UPPER_PLATEAU_SPEED_DEFAULT,                 \
         .tp_pts_threshold = MOUSE_PS2_CMD_TP_SET_PTS_THRESHOLD_DEFAULT,                       \
+        .tp_drag_hysteresis = MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS_DEFAULT,                   \
         .activity_callback = &zmk_mouse_ps2_activity_callback##n,                             \
         .activity_resend_callback = &zmk_mouse_ps2_activity_resend_callback##n,               \
     };                                                                                        \
@@ -2108,6 +2220,7 @@ DT_INST_FOREACH_STATUS_OKAY(PS2_MOUSE_CALLBACK_DEFINE)
         .tp_press_to_select_startup_delay_ms =                                                \
             DT_INST_PROP_OR(n, tp_press_to_select_startup_delay_ms, 0),                       \
         .tp_press_to_select_threshold = DT_INST_PROP_OR(n, tp_press_to_select_threshold, -1), \
+        .tp_drag_hysteresis = DT_INST_PROP_OR(n, tp_drag_hysteresis, -1),                     \
         .tp_sensitivity = DT_INST_PROP_OR(n, tp_sensitivity, -1),                             \
         .tp_neg_inertia = DT_INST_PROP_OR(n, tp_neg_inertia, -1),                             \
         .tp_val6_upper_speed = DT_INST_PROP_OR(n, tp_val6_upper_speed, -1),                   \

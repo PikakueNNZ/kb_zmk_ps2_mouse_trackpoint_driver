@@ -13,6 +13,7 @@
 #define INCREMENT_TP_NEG_INERTIA 1
 #define INCREMENT_TP_VALUE6 5
 #define INCREMENT_TP_PTS_THRESHOLD 1
+#define INCREMENT_TP_DRAG_HYSTERESIS 2
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
@@ -48,6 +49,11 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
         return zmk_mouse_ps2_tp_press_to_select_change(true);
     case MS_TP_PRESS_TO_SELECT_DISABLE:
         return zmk_mouse_ps2_tp_press_to_select_change(false);
+
+    case MS_TP_DRAG_HYSTERESIS_INCR:
+        return zmk_mouse_ps2_tp_drag_hysteresis_change(INCREMENT_TP_DRAG_HYSTERESIS);
+    case MS_TP_DRAG_HYSTERESIS_DECR:
+        return zmk_mouse_ps2_tp_drag_hysteresis_change(-INCREMENT_TP_DRAG_HYSTERESIS);
     }
 
     return -ENOTSUP;
