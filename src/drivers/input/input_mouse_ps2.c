@@ -2096,6 +2096,11 @@ int zmk_mouse_ps2_init_power_on_reset(const struct device *dev) {
     LOG_INF("Performing Power-On-Reset on pin P%d.%02d...", config->rst_gpio_port_num,
             config->rst_gpio.pin);
 
+    int err = ps2_disable_callback(config->ps2_device);
+    if (err) {
+        LOG_WRN("Could not purge stale PS/2 bytes before Power-On-Reset: %d", err);
+    }
+
     if (data->rst_gpio.port == NULL) {
         data->rst_gpio = config->rst_gpio;
 
@@ -2104,7 +2109,7 @@ int zmk_mouse_ps2_init_power_on_reset(const struct device *dev) {
     }
 
     //  Set reset pin low...
-    int err = gpio_pin_configure_dt(&data->rst_gpio, (GPIO_OUTPUT_HIGH));
+    err = gpio_pin_configure_dt(&data->rst_gpio, (GPIO_OUTPUT_HIGH));
     if (err) {
         LOG_ERR("Failed Power-On-Reset: Failed to configure RST GPIO pin to "
                 "output low (err %d)",
