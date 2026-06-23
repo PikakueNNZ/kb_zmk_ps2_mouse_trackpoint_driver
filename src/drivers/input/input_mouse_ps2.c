@@ -84,6 +84,8 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define MOUSE_PS2_CMD_TP_SET_PREFIX_0 0xe2
 #define MOUSE_PS2_CMD_TP_SET_PREFIX_1 0x81
 #define MOUSE_PS2_TP_SET_CMD_SETTLE_MS 10
+#define MOUSE_PS2_TP_CONFIG_RETRY_ATTEMPTS 3
+#define MOUSE_PS2_TP_CONFIG_RETRY_DELAY_MS 500
 
 #define MOUSE_PS2_ST_TP_SENSITIVITY "tp_sensitivity"
 #define MOUSE_PS2_CMD_TP_GET_SENSITIVITY "\xe2\x80\x4a"
@@ -258,6 +260,26 @@ static int allowed_sampling_rates[] = {
  */
 
 int zmk_mouse_ps2_settings_save();
+
+#define ZMK_MOUSE_PS2_RETRY_TP_CONFIG(_err, _descr, _expr)                                      \
+    do {                                                                                         \
+        (_err) = 0;                                                                              \
+        for (int attempt = 0; attempt < MOUSE_PS2_TP_CONFIG_RETRY_ATTEMPTS; attempt++) {         \
+            (_err) = (_expr);                                                                    \
+            if ((_err) == 0) {                                                                   \
+                break;                                                                           \
+            }                                                                                    \
+            if (attempt + 1 < MOUSE_PS2_TP_CONFIG_RETRY_ATTEMPTS) {                              \
+                LOG_WRN("Retrying TrackPoint %s after error %d (%d/%d)", (_descr), (_err),       \
+                        attempt + 2, MOUSE_PS2_TP_CONFIG_RETRY_ATTEMPTS);                       \
+                k_sleep(K_MSEC(MOUSE_PS2_TP_CONFIG_RETRY_DELAY_MS));                             \
+            }                                                                                    \
+        }                                                                                        \
+        if ((_err) != 0) {                                                                       \
+            LOG_ERR("TrackPoint %s failed after %d attempts: %d", (_descr),                     \
+                    MOUSE_PS2_TP_CONFIG_RETRY_ATTEMPTS, (_err));                                 \
+        }                                                                                        \
+    } while (0)
 
 /*
  * Helpers
@@ -1694,33 +1716,36 @@ int zmk_mouse_ps2_settings_reset_dev(const struct device *dev) {
     zmk_mouse_ps2_settings_reset_setting(MOUSE_PS2_ST_TP_DRAG_HYSTERESIS);
 
     LOG_INF("Restoring default settings to TP..");
-    zmk_mouse_ps2_tp_sensitivity_set(
-        dev,
-        config->tp_sensitivity != -1 ? config->tp_sensitivity
-                                     : MOUSE_PS2_CMD_TP_SET_SENSITIVITY_DEFAULT);
+    int err;
+    ZMK_MOUSE_PS2_RETRY_TP_CONFIG(err, "sensitivity",
+                                  zmk_mouse_ps2_tp_sensitivity_set(
+                                      dev, config->tp_sensitivity != -1
+                                               ? config->tp_sensitivity
+                                               : MOUSE_PS2_CMD_TP_SET_SENSITIVITY_DEFAULT));
 
-    zmk_mouse_ps2_tp_neg_inertia_set(
-        dev,
-        config->tp_neg_inertia != -1 ? config->tp_neg_inertia
-                                     : MOUSE_PS2_CMD_TP_SET_NEG_INERTIA_DEFAULT);
+    ZMK_MOUSE_PS2_RETRY_TP_CONFIG(err, "negative inertia",
+                                  zmk_mouse_ps2_tp_neg_inertia_set(
+                                      dev, config->tp_neg_inertia != -1
+                                               ? config->tp_neg_inertia
+                                               : MOUSE_PS2_CMD_TP_SET_NEG_INERTIA_DEFAULT));
 
-    zmk_mouse_ps2_tp_value6_upper_plateau_speed_set(
-        dev,
-        config->tp_val6_upper_speed != -1
-            ? config->tp_val6_upper_speed
-            : MOUSE_PS2_CMD_TP_SET_VALUE6_UPPER_PLATEAU_SPEED_DEFAULT);
+    ZMK_MOUSE_PS2_RETRY_TP_CONFIG(err, "value6 upper plateau speed",
+                                  zmk_mouse_ps2_tp_value6_upper_plateau_speed_set(
+                                      dev, config->tp_val6_upper_speed != -1
+                                               ? config->tp_val6_upper_speed
+                                               : MOUSE_PS2_CMD_TP_SET_VALUE6_UPPER_PLATEAU_SPEED_DEFAULT));
 
-    zmk_mouse_ps2_tp_pts_threshold_set(
-        dev,
-        config->tp_press_to_select_threshold != -1
-            ? config->tp_press_to_select_threshold
-            : MOUSE_PS2_CMD_TP_SET_PTS_THRESHOLD_DEFAULT);
+    ZMK_MOUSE_PS2_RETRY_TP_CONFIG(err, "press-to-select threshold",
+                                  zmk_mouse_ps2_tp_pts_threshold_set(
+                                      dev, config->tp_press_to_select_threshold != -1
+                                               ? config->tp_press_to_select_threshold
+                                               : MOUSE_PS2_CMD_TP_SET_PTS_THRESHOLD_DEFAULT));
 
-    zmk_mouse_ps2_tp_drag_hysteresis_set(
-        dev,
-        config->tp_drag_hysteresis != -1
-            ? config->tp_drag_hysteresis
-            : MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS_DEFAULT);
+    ZMK_MOUSE_PS2_RETRY_TP_CONFIG(err, "drag hysteresis",
+                                  zmk_mouse_ps2_tp_drag_hysteresis_set(
+                                      dev, config->tp_drag_hysteresis != -1
+                                               ? config->tp_drag_hysteresis
+                                               : MOUSE_PS2_CMD_TP_SET_DRAG_HYSTERESIS_DEFAULT));
 
     return 0;
 }
@@ -1952,51 +1977,67 @@ static void zmk_mouse_ps2_init_thread(int dev_ptr, int unused) {
     LOG_INF("Connected device is a %s", device_descr);
 
     if (data->is_trackpoint == true) {
+        int tp_err;
 
         if (config->tp_press_to_select &&
             config->tp_press_to_select_startup_delay_ms <= 0) {
             LOG_INF("Enabling TP press to select...");
-            zmk_mouse_ps2_tp_press_to_select_set(dev, true);
+            ZMK_MOUSE_PS2_RETRY_TP_CONFIG(tp_err, "press-to-select enable",
+                                          zmk_mouse_ps2_tp_press_to_select_set(dev, true));
         }
 
         if (config->tp_press_to_select_threshold != -1) {
             LOG_INF("Setting TP press to select thereshold to %d...",
                     config->tp_press_to_select_threshold);
-            zmk_mouse_ps2_tp_pts_threshold_set(dev, config->tp_press_to_select_threshold);
+            ZMK_MOUSE_PS2_RETRY_TP_CONFIG(
+                tp_err, "press-to-select threshold",
+                zmk_mouse_ps2_tp_pts_threshold_set(dev, config->tp_press_to_select_threshold));
         }
 
         if (config->tp_drag_hysteresis != -1) {
             LOG_INF("Setting TP drag hysteresis to %d...", config->tp_drag_hysteresis);
-            zmk_mouse_ps2_tp_drag_hysteresis_set(dev, config->tp_drag_hysteresis);
+            ZMK_MOUSE_PS2_RETRY_TP_CONFIG(
+                tp_err, "drag hysteresis",
+                zmk_mouse_ps2_tp_drag_hysteresis_set(dev, config->tp_drag_hysteresis));
         }
 
         if (config->tp_sensitivity != -1) {
             LOG_INF("Setting TP sensitivity to %d...", config->tp_sensitivity);
-            zmk_mouse_ps2_tp_sensitivity_set(dev, config->tp_sensitivity);
+            ZMK_MOUSE_PS2_RETRY_TP_CONFIG(
+                tp_err, "sensitivity",
+                zmk_mouse_ps2_tp_sensitivity_set(dev, config->tp_sensitivity));
         }
 
         if (config->tp_neg_inertia != -1) {
             LOG_INF("Setting TP inertia to %d...", config->tp_neg_inertia);
-            zmk_mouse_ps2_tp_neg_inertia_set(dev, config->tp_neg_inertia);
+            ZMK_MOUSE_PS2_RETRY_TP_CONFIG(
+                tp_err, "negative inertia",
+                zmk_mouse_ps2_tp_neg_inertia_set(dev, config->tp_neg_inertia));
         }
 
         if (config->tp_val6_upper_speed != -1) {
             LOG_INF("Setting TP value 6 upper speed plateau to %d...", config->tp_val6_upper_speed);
-            zmk_mouse_ps2_tp_value6_upper_plateau_speed_set(dev, config->tp_val6_upper_speed);
+            ZMK_MOUSE_PS2_RETRY_TP_CONFIG(
+                tp_err, "value6 upper plateau speed",
+                zmk_mouse_ps2_tp_value6_upper_plateau_speed_set(dev,
+                                                                config->tp_val6_upper_speed));
         }
         if (config->tp_x_invert) {
             LOG_INF("Inverting trackpoint x axis.");
-            zmk_mouse_ps2_tp_invert_x_set(dev, true);
+            ZMK_MOUSE_PS2_RETRY_TP_CONFIG(tp_err, "invert x",
+                                          zmk_mouse_ps2_tp_invert_x_set(dev, true));
         }
 
         if (config->tp_y_invert) {
             LOG_INF("Inverting trackpoint y axis.");
-            zmk_mouse_ps2_tp_invert_y_set(dev, true);
+            ZMK_MOUSE_PS2_RETRY_TP_CONFIG(tp_err, "invert y",
+                                          zmk_mouse_ps2_tp_invert_y_set(dev, true));
         }
 
         if (config->tp_xy_swap) {
             LOG_INF("Swapping trackpoint x and y axis.");
-            zmk_mouse_ps2_tp_swap_xy_set(dev, true);
+            ZMK_MOUSE_PS2_RETRY_TP_CONFIG(tp_err, "swap xy",
+                                          zmk_mouse_ps2_tp_swap_xy_set(dev, true));
         }
     }
 
@@ -2067,7 +2108,9 @@ static void zmk_mouse_ps2_tp_press_to_select_startup_work_handler(struct k_work 
     }
 
     LOG_INF("Delayed enabling TP press to select...");
-    int err = zmk_mouse_ps2_tp_press_to_select_set(data->dev, true);
+    int err;
+    ZMK_MOUSE_PS2_RETRY_TP_CONFIG(err, "press-to-select enable",
+                                  zmk_mouse_ps2_tp_press_to_select_set(data->dev, true));
     if (err) {
         LOG_ERR("Delayed TP press to select enable failed: %d", err);
         return;
